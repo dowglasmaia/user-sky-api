@@ -1,0 +1,512 @@
+openapi: "3.1.0"
+
+info:
+  title: User Management API
+  version: "1.0.0"
+  description: |
+    REST API for user management and association with external projects.
+
+    External projects are sourced from the projects-api microservice; this API
+    only persists the user ↔ project link plus a local snapshot of the project's
+    display fields.
+
+    Features:
+      - User CRUD
+      - Link/unlink users to external projects
+      - JWT Bearer Authentication
+      - Role-based access control (ROLE_USER, ROLE_ADMIN)
+      - RFC 7807 Problem Details error responses
+      - Request correlation via X-Correlation-Id
+
+servers:
+  - url: http://localhost:8080/api/v1
+    description: Local environment
+
+tags:
+  - name: Auth
+    description: Authentication endpoints
+  - name: Users
+    description: User management endpoints
+  - name: Projects
+    description: External project association endpoints
+
+security:
+  - BearerAuth: []
+
+paths:
+
+  /auth/login:
+    post:
+      tags: [Auth]
+      summary: Authenticate and get JWT token
+      operationId: login
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/CorrelationIdHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        "200":
+          description: Authentication successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        "401":
+          $ref: '#/components/responses/UnauthorizedResponse'
+        "500":
+          $ref: '#/components/responses/InternalServerErrorResponse'
+
+  /users:
+    get:
+      tags: [Users]
+      summary: List all users (paginated)
+      operationId: listUsers
+      parameters:
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 0
+            minimum: 0
+        - name: size
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 20
+            minimum: 1
+            maximum: 100
+        - $ref: '#/components/parameters/CorrelationIdHeader'
+      responses:
+        "200":
+          description: Users listed successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserPageResponse'
+        "429":
+          $ref: '#/components/responses/TooManyRequestsResponse'
+        "500":
+          $ref: '#/components/responses/InternalServerErrorResponse'
+
+    post:
+      tags: [Users]
+      summary: Create user
+      operationId: createUser
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/CorrelationIdHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateUserRequest'
+      responses:
+        "201":
+          description: User created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserResponse'
+        "400":
+          $ref: '#/components/responses/BadRequestResponse'
+        "409":
+          $ref: '#/components/responses/ConflictResponse'
+        "429":
+          $ref: '#/components/responses/TooManyRequestsResponse'
+        "500":
+          $ref: '#/components/responses/InternalServerErrorResponse'
+
+  /users/{id}:
+    get:
+      tags: [Users]
+      summary: Retrieve user by ID
+      operationId: getUserById
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+        - $ref: '#/components/parameters/CorrelationIdHeader'
+      responses:
+        "200":
+          description: User retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserResponse'
+        "404":
+          $ref: '#/components/responses/NotFoundResponse'
+        "429":
+          $ref: '#/components/responses/TooManyRequestsResponse'
+        "500":
+          $ref: '#/components/responses/InternalServerErrorResponse'
+
+    put:
+      tags: [Users]
+      summary: Update user
+      operationId: updateUser
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+        - $ref: '#/components/parameters/CorrelationIdHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateUserRequest'
+      responses:
+        "200":
+          description: User updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserResponse'
+        "400":
+          $ref: '#/components/responses/BadRequestResponse'
+        "404":
+          $ref: '#/components/responses/NotFoundResponse'
+        "409":
+          $ref: '#/components/responses/ConflictResponse'
+        "429":
+          $ref: '#/components/responses/TooManyRequestsResponse'
+        "500":
+          $ref: '#/components/responses/InternalServerErrorResponse'
+
+    delete:
+      tags: [Users]
+      summary: Delete user (ADMIN only)
+      operationId: deleteUser
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+        - $ref: '#/components/parameters/CorrelationIdHeader'
+      responses:
+        "204":
+          description: User deleted successfully
+        "403":
+          $ref: '#/components/responses/ForbiddenResponse'
+        "404":
+          $ref: '#/components/responses/NotFoundResponse'
+        "429":
+          $ref: '#/components/responses/TooManyRequestsResponse'
+        "500":
+          $ref: '#/components/responses/InternalServerErrorResponse'
+
+  /users/{id}/projects:
+    get:
+      tags: [Projects]
+      summary: List external projects linked to a user
+      operationId: getUserProjects
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+        - $ref: '#/components/parameters/CorrelationIdHeader'
+      responses:
+        "200":
+          description: Projects retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserProjectsResponse'
+        "404":
+          $ref: '#/components/responses/NotFoundResponse'
+        "429":
+          $ref: '#/components/responses/TooManyRequestsResponse'
+        "500":
+          $ref: '#/components/responses/InternalServerErrorResponse'
+
+  /users/{userId}/projects/{projectId}:
+    post:
+      tags: [Projects]
+      summary: Link an existing external project to a user
+      description: |
+        Creates an association between an existing user and an existing project
+        (sourced from projects-api). No project payload is accepted — the
+        project must already exist in the external catalog.
+      operationId: linkProjectToUser
+      parameters:
+        - $ref: '#/components/parameters/UserIdComposite'
+        - $ref: '#/components/parameters/ProjectId'
+        - $ref: '#/components/parameters/CorrelationIdHeader'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LinkProjectRequest'
+      responses:
+        "201":
+          description: Link created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExternalProjectResponse'
+        "404":
+          $ref: '#/components/responses/NotFoundResponse'
+        "409":
+          $ref: '#/components/responses/ConflictResponse'
+        "429":
+          $ref: '#/components/responses/TooManyRequestsResponse'
+        "502":
+          $ref: '#/components/responses/BadGatewayResponse'
+        "500":
+          $ref: '#/components/responses/InternalServerErrorResponse'
+
+    delete:
+      tags: [Projects]
+      summary: Unlink an external project from a user
+      operationId: unlinkProjectFromUser
+      parameters:
+        - $ref: '#/components/parameters/UserIdComposite'
+        - $ref: '#/components/parameters/ProjectId'
+        - $ref: '#/components/parameters/CorrelationIdHeader'
+      responses:
+        "204":
+          description: Link removed successfully
+        "404":
+          $ref: '#/components/responses/NotFoundResponse'
+        "429":
+          $ref: '#/components/responses/TooManyRequestsResponse'
+        "500":
+          $ref: '#/components/responses/InternalServerErrorResponse'
+
+components:
+
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+
+    UserId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+    UserIdComposite:
+      name: userId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+    ProjectId:
+      name: projectId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+    CorrelationIdHeader:
+      name: X-Correlation-Id
+      in: header
+      required: false
+      description: Optional client-supplied correlation identifier propagated through downstream calls.
+      schema:
+        type: string
+        maxLength: 64
+
+  schemas:
+
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 8
+
+    LoginResponse:
+      type: object
+      properties:
+        token:
+          type: string
+
+    CreateUserRequest:
+      type: object
+      required: [name, email, password]
+      properties:
+        name:
+          type: string
+          minLength: 3
+          maxLength: 120
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 8
+          maxLength: 100
+
+    UpdateUserRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 3
+          maxLength: 120
+        email:
+          type: string
+          format: email
+
+    UserResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        email:
+          type: string
+
+    LinkProjectRequest:
+      type: object
+      description: Optional override for the link description (defaults to the project's description).
+      properties:
+        description:
+          type: string
+          maxLength: 255
+      additionalProperties: false
+
+    UserProjectsResponse:
+      type: object
+      properties:
+        user:
+          type: string
+          description: Name of the user who owns the linked projects
+        projects:
+          type: array
+          items:
+            $ref: '#/components/schemas/ExternalProjectResponse'
+
+    UserPageResponse:
+      type: object
+      properties:
+        content:
+          type: array
+          items:
+            $ref: '#/components/schemas/UserResponse'
+        totalElements:
+          type: integer
+          format: int64
+        totalPages:
+          type: integer
+        page:
+          type: integer
+        size:
+          type: integer
+
+    ExternalProjectResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        description:
+          type: string
+
+    ProblemDetail:
+      type: object
+      description: RFC 7807 problem details
+      properties:
+        type:
+          type: string
+          format: uri
+        title:
+          type: string
+        status:
+          type: integer
+        detail:
+          type: string
+        instance:
+          type: string
+        traceId:
+          type: string
+        correlationId:
+          type: string
+        errors:
+          type: array
+          items:
+            $ref: '#/components/schemas/FieldViolation'
+
+    FieldViolation:
+      type: object
+      properties:
+        field:
+          type: string
+        message:
+          type: string
+
+  responses:
+
+    BadRequestResponse:
+      description: Invalid request payload
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetail'
+
+    UnauthorizedResponse:
+      description: Authentication required or invalid credentials
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetail'
+
+    ForbiddenResponse:
+      description: Access denied
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetail'
+
+    NotFoundResponse:
+      description: Resource not found
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetail'
+
+    ConflictResponse:
+      description: Resource conflict
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetail'
+
+    TooManyRequestsResponse:
+      description: Too many requests
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetail'
+
+    BadGatewayResponse:
+      description: Upstream service failure
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetail'
+
+    InternalServerErrorResponse:
+      description: Internal server error
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetail'
