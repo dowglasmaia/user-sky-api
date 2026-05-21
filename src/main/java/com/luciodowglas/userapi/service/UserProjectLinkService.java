@@ -3,6 +3,8 @@ package com.luciodowglas.userapi.service;
 import java.util.List;
 import java.util.UUID;
 
+import com.luciodowglas.userapi.exception.ExternalIntegrationException;
+import com.luciodowglas.userapi.exception.ProjectNotFoundException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -66,49 +68,53 @@ public class UserProjectLinkService {
      */
     @Transactional
     public ExternalProjectResponse linkProject(UUID userId, UUID projectId, LinkProjectRequest request) {
-        log.info("link_project_started userId={} projectId={}", userId, projectId);
+        log.info("[PROJECT][LINK][STARTED] userId={} projectId={}", userId, projectId);
 
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> {
-                    log.warn("link_project_user_missing userId={}", userId);
+                    log.error("[PROJECT][LINK][FAILED] reason=user_not_found userId={}", userId);
                     return new UserNotFoundException(userId);
                 });
 
         ExternalProjectDto project = projectGateway.findById(projectId);
 
         if (linkRepository.existsByIdUserIdAndIdProjectId(userId, projectId)) {
-            log.warn("link_project_duplicate userId={} projectId={}", userId, projectId);
+            log.error("[PROJECT][LINK][FAILED] reason=duplicate userId={} projectId={}", userId, projectId);
             throw new ProjectAlreadyExistsException(projectId, userId);
         }
+        try {
+            String description = (request != null && StringUtils.hasText(request.getDescription()))
+                    ? request.getDescription()
+                    : project.description();
 
-        String description = (request != null && StringUtils.hasText(request.getDescription()))
-                ? request.getDescription()
-                : project.description();
+            UserProjectLink link = UserProjectLink.builder()
+                    .id(new UserProjectLinkId(userId, projectId))
+                    .user(user)
+                    .name(project.name())
+                    .description(description)
+                    .build();
 
-        UserProjectLink link = UserProjectLink.builder()
-                .id(new UserProjectLinkId(userId, projectId))
-                .user(user)
-                .name(project.name())
-                .description(description)
-                .build();
-
-        UserProjectLink saved = linkRepository.save(link);
-        linkCreatedCounter.increment();
-        log.info("link_project_created userId={} projectId={} projectName={}", userId, projectId, project.name());
-        return projectMapper.toResponse(saved);
+            UserProjectLink saved = linkRepository.save(link);
+            linkCreatedCounter.increment();
+            log.info("[PROJECT][LINK][SUCCESS] userId={} projectId={} name={}", userId, projectId, project.name());
+            return projectMapper.toResponse(saved);
+        } catch (Exception e) {
+            log.error("[PROJECT][LINK][FAILED] reason=persistence_error userId={} projectId={}", userId, projectId, e);
+            throw new ExternalIntegrationException("Failed to link project " + projectId + " to user " + userId, e);
+        }
     }
 
     @Transactional
     public void unlinkProject(UUID userId, UUID projectId) {
-        log.info("unlink_project_started userId={} projectId={}", userId, projectId);
+        log.info("[PROJECT][UNLINK][STARTED] userId={} projectId={}", userId, projectId);
 
         if (!linkRepository.existsByIdUserIdAndIdProjectId(userId, projectId)) {
-            log.warn("unlink_project_missing userId={} projectId={}", userId, projectId);
-            throw new com.luciodowglas.userapi.exception.ProjectNotFoundException(projectId, userId);
+            log.error("[PROJECT][UNLINK][FAILED] reason=link_not_found userId={} projectId={}", userId, projectId);
+            throw new ProjectNotFoundException(projectId, userId);
         }
 
         linkRepository.deleteByIdUserIdAndIdProjectId(userId, projectId);
-        log.info("unlink_project_completed userId={} projectId={}", userId, projectId);
+        log.info("[PROJECT][UNLINK][SUCCESS] userId={} projectId={}", userId, projectId);
     }
 
     @Transactional(readOnly = true)
@@ -116,7 +122,7 @@ public class UserProjectLinkService {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new UserNotFoundException(userId));
         List<UserProjectLink> links = linkRepository.findAllByIdUserId(userId);
-        log.debug("list_user_projects userId={} count={}", userId, links.size());
+        log.debug("[PROJECT][LIST][SUCCESS] userId={} count={}", userId, links.size());
         return projectMapper.toUserProjectsResponse(user.getName(), links);
     }
 }

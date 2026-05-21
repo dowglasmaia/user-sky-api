@@ -3,8 +3,13 @@ package com.luciodowglas.userapi.controller;
 import java.util.UUID;
 
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.luciodowglas.userapi.service.UserProjectLinkService;
@@ -68,11 +73,14 @@ public class UserController implements UsersApi {
         return ResponseEntity.ok(linkService.getProjects(id));
     }
 
+    @PostMapping(value = "/users/{userId}/projects/{projectId}", produces = MediaType.APPLICATION_JSON_VALUE)
     @Override
     @RateLimiter(name = "userApiLimiter")
-    public ResponseEntity<ExternalProjectResponse> linkProjectToUser(UUID userId, UUID projectId,
-                                                                      String xCorrelationId,
-                                                                      LinkProjectRequest linkProjectRequest) {
+    public ResponseEntity<ExternalProjectResponse> linkProjectToUser(
+            @PathVariable UUID userId,
+            @PathVariable UUID projectId,
+            @RequestHeader(value = "X-Correlation-Id", required = false) String xCorrelationId,
+            @RequestBody(required = false) LinkProjectRequest linkProjectRequest) {
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(linkService.linkProject(userId, projectId, linkProjectRequest));
     }

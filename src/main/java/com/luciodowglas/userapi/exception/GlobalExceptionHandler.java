@@ -11,6 +11,7 @@ import org.springframework.http.ProblemDetail;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.BadCredentialsException;
+import org.springframework.web.HttpMediaTypeNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -86,6 +87,14 @@ public class GlobalExceptionHandler {
         log.warn("rate_limit_exceeded path={}", request.getRequestURI());
         return problem(HttpStatus.TOO_MANY_REQUESTS, "Too many requests",
                 "Rate limit exceeded. Please slow down.", request);
+    }
+
+    @ExceptionHandler(HttpMediaTypeNotSupportedException.class)
+    public ProblemDetail handleMediaType(HttpMediaTypeNotSupportedException ex, HttpServletRequest request) {
+        log.warn("[HTTP][REQUEST][FAILED] reason=unsupported_content_type path={} contentType={}",
+                request.getRequestURI(), request.getContentType());
+        return problem(HttpStatus.UNSUPPORTED_MEDIA_TYPE, "Unsupported media type",
+                "Set Content-Type: application/json (or omit body entirely).", request);
     }
 
     @ExceptionHandler(BadCredentialsException.class)

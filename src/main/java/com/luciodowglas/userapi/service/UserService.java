@@ -35,10 +35,10 @@ public class UserService {
 
     @Transactional
     public UserResponse createUser(CreateUserRequest request) {
-        log.info("create_user_started email={}", request.getEmail());
+        log.info("[USER][CREATE][STARTED] email={}", request.getEmail());
 
         if (userRepository.existsByEmail(request.getEmail())) {
-            log.warn("create_user_rejected_duplicate email={}", request.getEmail());
+            log.warn("[USER][CREATE][FAILED] reason=email_duplicate email={}", request.getEmail());
             throw new UserAlreadyExistsException(request.getEmail());
         }
 
@@ -50,13 +50,13 @@ public class UserService {
                 .build();
 
         User saved = userRepository.save(user);
-        log.info("create_user_completed id={} email={}", saved.getId(), saved.getEmail());
+        log.info("[USER][CREATE][SUCCESS] id={} email={}", saved.getId(), saved.getEmail());
         return userMapper.toResponse(saved);
     }
 
     @Transactional(readOnly = true)
     public UserResponse getUserById(UUID id) {
-        log.debug("get_user_by_id id={}", id);
+        log.debug("[USER][FETCH][STARTED] id={}", id);
         User user = userRepository.findById(id)
                 .orElseThrow(() -> new UserNotFoundException(id));
         return userMapper.toResponse(user);
@@ -64,17 +64,17 @@ public class UserService {
 
     @Transactional
     public UserResponse updateUser(UUID id, UpdateUserRequest request) {
-        log.info("update_user_started id={}", id);
+        log.info("[USER][UPDATE][STARTED] id={}", id);
 
         User user = userRepository.findById(id)
                 .orElseThrow(() -> new UserNotFoundException(id));
 
         if (request.getEmail() != null && !request.getEmail().equals(user.getEmail())) {
             if (userRepository.existsByEmail(request.getEmail())) {
-                log.warn("update_user_rejected_duplicate_email id={} email={}", id, request.getEmail());
+                log.error("[USER][UPDATE][FAILED] reason=email_duplicate id={} email={}", id, request.getEmail());
                 throw new UserAlreadyExistsException(request.getEmail());
             }
-            log.debug("update_user_changing_email id={} oldEmail={} newEmail={}", id, user.getEmail(), request.getEmail());
+            log.debug("[USER][UPDATE][EMAIL_CHANGED] id={} old={} new={}", id, user.getEmail(), request.getEmail());
             user.setEmail(request.getEmail());
         }
 
@@ -83,7 +83,7 @@ public class UserService {
         }
 
         User saved = userRepository.save(user);
-        log.info("update_user_completed id={}", id);
+        log.info("[USER][UPDATE][SUCCESS] id={}", id);
         return userMapper.toResponse(saved);
     }
 
@@ -96,14 +96,14 @@ public class UserService {
 
     @Transactional
     public void deleteUser(UUID id) {
-        log.info("delete_user_started id={}", id);
+        log.info("[USER][DELETE][STARTED] id={}", id);
 
         if (!userRepository.existsById(id)) {
-            log.warn("delete_user_not_found id={}", id);
+            log.error("[USER][DELETE][FAILED] reason=not_found id={}", id);
             throw new UserNotFoundException(id);
         }
 
         userRepository.deleteByIdDirect(id);
-        log.info("delete_user_completed id={}", id);
+        log.info("[USER][DELETE][SUCCESS] id={}", id);
     }
 }
