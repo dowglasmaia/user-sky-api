@@ -6,11 +6,14 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.luciodowglas.userapi.entity.User;
+import com.luciodowglas.userapi.exception.InsufficientPrivilegesException;
 import com.luciodowglas.userapi.exception.UserAlreadyExistsException;
 import com.luciodowglas.userapi.exception.UserNotFoundException;
 import com.luciodowglas.userapi.mapper.UserMapper;
@@ -19,6 +22,7 @@ import com.luciodowglas.userapi.security.RoleEnum;
 
 import br.com.luciodowglas.openapi.model.CreateUserRequest;
 import br.com.luciodowglas.openapi.model.UpdateUserRequest;
+import br.com.luciodowglas.openapi.model.UserRole;
 import br.com.luciodowglas.openapi.model.UserPageResponse;
 import br.com.luciodowglas.openapi.model.UserResponse;
 import lombok.RequiredArgsConstructor;
@@ -42,11 +46,25 @@ public class UserService {
             throw new UserAlreadyExistsException(request.getEmail());
         }
 
+        RoleEnum role = request.getRole() != null
+                ? RoleEnum.valueOf(request.getRole().getValue())
+                : RoleEnum.ROLE_USER;
+
+        if (role == RoleEnum.ROLE_ADMIN) {
+            Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+            boolean isAdmin = auth != null && auth.getAuthorities().stream()
+                    .anyMatch(a -> a.getAuthority().equals(RoleEnum.ROLE_ADMIN.name()));
+            if (!isAdmin) {
+                log.warn("[USER][CREATE][FAILED] reason=insufficient_privileges requested_role=ROLE_ADMIN");
+                throw new InsufficientPrivilegesException("Only administrators can create users with ROLE_ADMIN.");
+            }
+        }
+
         User user = User.builder()
                 .email(request.getEmail())
                 .name(request.getName())
                 .password(passwordEncoder.encode(request.getPassword()))
-                .role(RoleEnum.ROLE_USER)
+                .role(role)
                 .build();
 
         User saved = userRepository.save(user);

@@ -108,6 +108,12 @@ public class GlobalExceptionHandler {
         return problem(HttpStatus.UNAUTHORIZED, "Unauthorized", "Invalid email or password.", request);
     }
 
+    @ExceptionHandler(InsufficientPrivilegesException.class)
+    public ProblemDetail handleInsufficientPrivileges(InsufficientPrivilegesException ex, HttpServletRequest request) {
+        log.warn("insufficient_privileges path={} message={}", request.getRequestURI(), ex.getMessage());
+        return problem(HttpStatus.FORBIDDEN, "Access denied", ex.getMessage(), request);
+    }
+
     @ExceptionHandler(AccessDeniedException.class)
     public ProblemDetail handleAccessDenied(AccessDeniedException ex, HttpServletRequest request) {
         log.warn("access_denied path={}", request.getRequestURI());

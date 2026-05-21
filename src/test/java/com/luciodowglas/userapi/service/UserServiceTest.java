@@ -8,11 +8,13 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
@@ -21,9 +23,13 @@ import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
 import com.luciodowglas.userapi.entity.User;
+import com.luciodowglas.userapi.exception.InsufficientPrivilegesException;
 import com.luciodowglas.userapi.exception.UserAlreadyExistsException;
 import com.luciodowglas.userapi.exception.UserNotFoundException;
 import com.luciodowglas.userapi.mapper.UserMapper;
@@ -31,6 +37,7 @@ import com.luciodowglas.userapi.repository.UserRepository;
 import com.luciodowglas.userapi.security.RoleEnum;
 
 import br.com.luciodowglas.openapi.model.UpdateUserRequest;
+import br.com.luciodowglas.openapi.model.UserRole;
 
 @ExtendWith(MockitoExtension.class)
 class UserServiceTest {
@@ -44,6 +51,17 @@ class UserServiceTest {
     @BeforeEach
     void setUp() {
         userService = new UserService(userRepository, passwordEncoder, userMapper);
+    }
+
+    @AfterEach
+    void clearSecurityContext() {
+        SecurityContextHolder.clearContext();
+    }
+
+    private void authenticateAs(RoleEnum role) {
+        Collection<SimpleGrantedAuthority> authorities = List.of(new SimpleGrantedAuthority(role.name()));
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken("user", null, authorities));
     }
 
     // ── Registration ─────────────────────────────────────────────────────────
@@ -68,19 +86,63 @@ class UserServiceTest {
     }
 
     @Test
-    void user_registrationAlwaysAssignsRoleUser_neverAdmin() {
+    void user_registrationDefaultsToRoleUser_whenRoleIsOmitted() {
         // given
         when(userRepository.existsByEmail(USER_EMAIL)).thenReturn(false);
         when(passwordEncoder.encode(RAW_PASSWORD)).thenReturn("$encoded");
         when(userRepository.save(any(User.class))).thenReturn(aUser());
 
         // when
-        userService.createUser(aCreateUserRequest());
+        userService.createUser(aCreateUserRequest()); // no role set
 
         // then
         ArgumentCaptor<User> captor = ArgumentCaptor.forClass(User.class);
         verify(userRepository).save(captor.capture());
         assertThat(captor.getValue().getRole()).isEqualTo(RoleEnum.ROLE_USER);
+    }
+
+    @Test
+    void user_registrationUsesRoleAdmin_whenRequestedByAnAdmin() {
+        // given
+        authenticateAs(RoleEnum.ROLE_ADMIN);
+        when(userRepository.existsByEmail(USER_EMAIL)).thenReturn(false);
+        when(passwordEncoder.encode(RAW_PASSWORD)).thenReturn("$encoded");
+        when(userRepository.save(any(User.class))).thenReturn(anAdminUser());
+
+        // when
+        userService.createUser(aCreateUserRequestWithRole(UserRole.ADMIN));
+
+        // then
+        ArgumentCaptor<User> captor = ArgumentCaptor.forClass(User.class);
+        verify(userRepository).save(captor.capture());
+        assertThat(captor.getValue().getRole()).isEqualTo(RoleEnum.ROLE_ADMIN);
+    }
+
+    @Test
+    void user_registrationFails_whenNonAdminTriesToCreateAdminUser() {
+        // given — unauthenticated request (no SecurityContext)
+        when(userRepository.existsByEmail(USER_EMAIL)).thenReturn(false);
+
+        // when / then
+        assertThatThrownBy(() -> userService.createUser(aCreateUserRequestWithRole(UserRole.ADMIN)))
+                .isInstanceOf(InsufficientPrivilegesException.class)
+                .hasMessageContaining("Only administrators");
+
+        verify(userRepository, never()).save(any());
+    }
+
+    @Test
+    void user_registrationFails_whenRoleUserTriesToCreateAdminUser() {
+        // given — authenticated but only as ROLE_USER
+        authenticateAs(RoleEnum.ROLE_USER);
+        when(userRepository.existsByEmail(USER_EMAIL)).thenReturn(false);
+
+        // when / then
+        assertThatThrownBy(() -> userService.createUser(aCreateUserRequestWithRole(UserRole.ADMIN)))
+                .isInstanceOf(InsufficientPrivilegesException.class)
+                .hasMessageContaining("Only administrators");
+
+        verify(userRepository, never()).save(any());
     }
 
     @Test

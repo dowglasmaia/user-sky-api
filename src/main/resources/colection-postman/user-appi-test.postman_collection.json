@@ -1,0 +1,534 @@
+{
+  "info": {
+    "_postman_id": "42c4499a-2078-4ab6-b415-f9584a0c9083",
+    "name": "User API — Test Collection",
+    "description": "Basic test suite for user-api.\n\n## How to use\n\nRun the **Setup** folder first (in order) to populate all tokens and IDs.\nAfter that, any request in any folder can be run independently.\n\n## Dev Admin (auto-seeded)\n- Email: `admin@system.com`  \n- Password: `admin123`",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl",          "value": "http://localhost:8080/api/v1", "type": "string" },
+    { "key": "projectsBaseUrl",  "value": "http://localhost:8081/api/v1", "type": "string" },
+    { "key": "adminToken",       "value": "", "type": "string" },
+    { "key": "userToken",        "value": "", "type": "string" },
+    { "key": "createdUserId",    "value": "", "type": "string" },
+    { "key": "adminEmail",       "value": "admin@system.com",      "type": "string" },
+    { "key": "adminPassword",    "value": "admin123",               "type": "string" },
+    { "key": "testUserEmail",    "value": "testuser@example.com",  "type": "string" },
+    { "key": "testUserPassword", "value": "TestPass@123",           "type": "string" },
+    { "key": "testProjectId",    "value": "",                       "type": "string" },
+    { "key": "nonExistentId",    "value": "00000000-0000-0000-0000-000000000000", "type": "string" }
+  ],
+  "item": [
+
+    {
+      "name": "1. Setup",
+      "description": "Run these 3 requests in order before anything else. They populate adminToken, createdUserId and userToken.",
+      "item": [
+
+        {
+          "name": "Login as Admin  →  saves adminToken",
+          "event": [{
+            "listen": "test",
+            "script": { "type": "text/javascript", "exec": [
+              "pm.test(\"Status 200\", () => pm.response.to.have.status(200));",
+              "const token = pm.response.json().token;",
+              "pm.expect(token).to.be.a(\"string\");",
+              "pm.collectionVariables.set(\"adminToken\", token);"
+            ]}
+          }],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{adminEmail}}\",\n  \"password\": \"{{adminPassword}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": { "raw": "{{baseUrl}}/auth/login", "host": ["{{baseUrl}}"], "path": ["auth","login"] }
+          },
+          "response": []
+        },
+
+        {
+          "name": "Create Test User  →  saves createdUserId",
+          "description": "Generates a unique email per run (timestamp-based) so concurrent runs never conflict. Always expects 201.",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": { "type": "text/javascript", "exec": [
+                "// Unique email per run — avoids 409 on repeated executions",
+                "const email = `testuser_${Date.now()}@example.com`;",
+                "pm.collectionVariables.set(\"testUserEmail\", email);"
+              ]}
+            },
+            {
+              "listen": "test",
+              "script": { "type": "text/javascript", "exec": [
+                "pm.test(\"Status 201\", () => pm.response.to.have.status(201));",
+                "const id = pm.response.json().id;",
+                "pm.expect(id).to.be.a(\"string\");",
+                "pm.collectionVariables.set(\"createdUserId\", id);",
+                "console.log(\"createdUserId saved:\", id);"
+              ]}
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Test User\",\n  \"email\": \"{{testUserEmail}}\",\n  \"password\": \"{{testUserPassword}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": { "raw": "{{baseUrl}}/users", "host": ["{{baseUrl}}"], "path": ["users"] }
+          },
+          "response": []
+        },
+
+        {
+          "name": "Login as Test User  →  saves userToken",
+          "description": "Pre-request auto-creates the user (with a fresh email) if createdUserId is missing.",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": { "type": "text/javascript", "exec": [
+                "// Safety net: create user if Setup was skipped",
+                "if (!pm.collectionVariables.get(\"createdUserId\")) {",
+                "    const email = `testuser_${Date.now()}@example.com`;",
+                "    pm.collectionVariables.set(\"testUserEmail\", email);",
+                "    pm.sendRequest({",
+                "        url: pm.collectionVariables.get(\"baseUrl\") + \"/users\",",
+                "        method: \"POST\",",
+                "        header: [{ key: \"Content-Type\", value: \"application/json\" }],",
+                "        body: { mode: \"raw\", raw: JSON.stringify({",
+                "            name: \"Test User\",",
+                "            email: email,",
+                "            password: pm.collectionVariables.get(\"testUserPassword\")",
+                "        })}",
+                "    }, (err, res) => {",
+                "        if (!err && res.code === 201) {",
+                "            pm.collectionVariables.set(\"createdUserId\", res.json().id);",
+                "        }",
+                "    });",
+                "}"
+              ]}
+            },
+            {
+              "listen": "test",
+              "script": { "type": "text/javascript", "exec": [
+                "pm.test(\"Status 200\", () => pm.response.to.have.status(200));",
+                "const token = pm.response.json().token;",
+                "pm.expect(token).to.be.a(\"string\");",
+                "pm.collectionVariables.set(\"userToken\", token);"
+              ]}
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{testUserEmail}}\",\n  \"password\": \"{{testUserPassword}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": { "raw": "{{baseUrl}}/auth/login", "host": ["{{baseUrl}}"], "path": ["auth","login"] }
+          },
+          "response": []
+        }
+
+      ]
+    },
+
+    {
+      "name": "2. Auth",
+      "description": "Error cases for authentication.",
+      "item": [
+
+        {
+          "name": "Login — Wrong Password  →  401",
+          "event": [{
+            "listen": "test",
+            "script": { "type": "text/javascript", "exec": [
+              "pm.test(\"Status 401\", () => pm.response.to.have.status(401));",
+              "pm.test(\"Problem Detail\", () => {",
+              "    const j = pm.response.json();",
+              "    pm.expect(j.status).to.eql(401);",
+              "    pm.expect(j.title).to.be.a(\"string\");",
+              "});"
+            ]}
+          }],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{adminEmail}}\",\n  \"password\": \"wrongtert\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": { "raw": "{{baseUrl}}/auth/login", "host": ["{{baseUrl}}"], "path": ["auth","login"] }
+          },
+          "response": []
+        },
+
+        {
+          "name": "Login — Missing Password  →  400",
+          "event": [{
+            "listen": "test",
+            "script": { "type": "text/javascript", "exec": [
+              "pm.test(\"Status 400\", () => pm.response.to.have.status(400));",
+              "pm.test(\"Has validation errors\", () => {",
+              "    pm.expect(pm.response.json().errors).to.be.an(\"array\").and.not.be.empty;",
+              "});"
+            ]}
+          }],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{adminEmail}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": { "raw": "{{baseUrl}}/auth/login", "host": ["{{baseUrl}}"], "path": ["auth","login"] }
+          },
+          "response": []
+        }
+
+      ]
+    },
+
+    {
+      "name": "3. Users",
+      "description": "CRUD + key role and validation scenarios.",
+      "item": [
+
+        {
+          "name": "List Users  →  200",
+          "event": [{
+            "listen": "test",
+            "script": { "type": "text/javascript", "exec": [
+              "pm.test(\"Status 200\", () => pm.response.to.have.status(200));",
+              "pm.test(\"Paginated response\", () => {",
+              "    const j = pm.response.json();",
+              "    pm.expect(j.content).to.be.an(\"array\");",
+              "    pm.expect(j.totalElements).to.be.a(\"number\");",
+              "    pm.expect(j.page).to.eql(0);",
+              "});"
+            ]}
+          }],
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{adminToken}}", "type": "string" }] },
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/users?page=0&size=20", "host": ["{{baseUrl}}"], "path": ["users"],
+              "query": [{ "key": "page", "value": "0" }, { "key": "size", "value": "20" }] }
+          },
+          "response": []
+        },
+
+        {
+          "name": "Get User by ID  →  200",
+          "event": [{
+            "listen": "test",
+            "script": { "type": "text/javascript", "exec": [
+              "pm.test(\"Status 200\", () => pm.response.to.have.status(200));",
+              "pm.test(\"User fields present\", () => {",
+              "    const j = pm.response.json();",
+              "    pm.expect(j.id).to.eql(pm.collectionVariables.get(\"createdUserId\"));",
+              "    pm.expect(j.email).to.be.a(\"string\");",
+              "});"
+            ]}
+          }],
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{adminToken}}", "type": "string" }] },
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/users/{{createdUserId}}", "host": ["{{baseUrl}}"], "path": ["users","{{createdUserId}}"] }
+          },
+          "response": []
+        },
+
+        {
+          "name": "Get User by ID — Not Found  →  404",
+          "event": [{
+            "listen": "test",
+            "script": { "type": "text/javascript", "exec": [
+              "pm.test(\"Status 404\", () => pm.response.to.have.status(404));",
+              "pm.test(\"Problem Detail\", () => pm.expect(pm.response.json().status).to.eql(404));"
+            ]}
+          }],
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{adminToken}}", "type": "string" }] },
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/users/{{nonExistentId}}", "host": ["{{baseUrl}}"], "path": ["users","{{nonExistentId}}"] }
+          },
+          "response": []
+        },
+
+        {
+          "name": "Update User  →  200",
+          "event": [{
+            "listen": "test",
+            "script": { "type": "text/javascript", "exec": [
+              "pm.test(\"Status 200\", () => pm.response.to.have.status(200));",
+              "pm.test(\"Name updated\", () => pm.expect(pm.response.json().name).to.eql(\"Test User Updated\"));"
+            ]}
+          }],
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{adminToken}}", "type": "string" }] },
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Test User Updated\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": { "raw": "{{baseUrl}}/users/{{createdUserId}}", "host": ["{{baseUrl}}"], "path": ["users","{{createdUserId}}"] }
+          },
+          "response": []
+        },
+
+        {
+          "name": "Create User — Duplicate Email  →  409",
+          "event": [{
+            "listen": "test",
+            "script": { "type": "text/javascript", "exec": [
+              "pm.test(\"Status 409\", () => pm.response.to.have.status(409));",
+              "pm.test(\"Problem Detail\", () => pm.expect(pm.response.json().status).to.eql(409));"
+            ]}
+          }],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Duplicate\",\n  \"email\": \"{{testUserEmail}}\",\n  \"password\": \"{{testUserPassword}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": { "raw": "{{baseUrl}}/users", "host": ["{{baseUrl}}"], "path": ["users"] }
+          },
+          "response": []
+        },
+
+        {
+          "name": "Create User — ROLE_ADMIN without auth  →  403",
+          "event": [{
+            "listen": "test",
+            "script": { "type": "text/javascript", "exec": [
+              "pm.test(\"Status 403\", () => pm.response.to.have.status(403));",
+              "pm.test(\"Problem Detail\", () => pm.expect(pm.response.json().status).to.eql(403));"
+            ]}
+          }],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Unauthorized Admin\",\n  \"email\": \"unauth@example.com\",\n  \"password\": \"Admin@1234\",\n  \"role\": \"ROLE_ADMIN\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": { "raw": "{{baseUrl}}/users", "host": ["{{baseUrl}}"], "path": ["users"] }
+          },
+          "response": []
+        },
+
+        {
+          "name": "Create User — ROLE_ADMIN authenticated as admin  →  201",
+          "event": [{
+            "listen": "test",
+            "script": { "type": "text/javascript", "exec": [
+              "pm.test(\"Status 201\", () => pm.response.to.have.status(201));",
+              "pm.test(\"User fields present\", () => {",
+              "    const j = pm.response.json();",
+              "    pm.expect(j.id).to.be.a(\"string\");",
+              "    pm.expect(j.email).to.be.a(\"string\");",
+              "});"
+            ]}
+          }],
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{adminToken}}", "type": "string" }] },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"New Admin\",\n  \"email\": \"{{$randomEmail}}\",\n  \"password\": \"Admin@1234\",\n  \"role\": \"ROLE_ADMIN\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": { "raw": "{{baseUrl}}/users", "host": ["{{baseUrl}}"], "path": ["users"] }
+          },
+          "response": []
+        },
+
+        {
+          "name": "Delete User — By ROLE_USER  →  403",
+          "event": [{
+            "listen": "test",
+            "script": { "type": "text/javascript", "exec": [
+              "pm.test(\"Status 403\", () => pm.response.to.have.status(403));"
+            ]}
+          }],
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{userToken}}", "type": "string" }] },
+            "method": "DELETE",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/users/{{createdUserId}}", "host": ["{{baseUrl}}"], "path": ["users","{{createdUserId}}"] }
+          },
+          "response": []
+        },
+
+        {
+          "name": "Delete User — By Admin (teardown)  →  204",
+          "description": "Run this last. Deletes the test user and clears createdUserId.",
+          "event": [{
+            "listen": "test",
+            "script": { "type": "text/javascript", "exec": [
+              "pm.test(\"Status 204\", () => pm.response.to.have.status(204));",
+              "pm.collectionVariables.set(\"createdUserId\", \"\");",
+              "pm.collectionVariables.set(\"userToken\", \"\");"
+            ]}
+          }],
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{adminToken}}", "type": "string" }] },
+            "method": "DELETE",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/users/{{createdUserId}}", "host": ["{{baseUrl}}"], "path": ["users","{{createdUserId}}"] }
+          },
+          "response": []
+        }
+
+      ]
+    },
+
+    {
+      "name": "4. Project Links",
+      "description": "Set testProjectId from the Observability/List Projects request before running.",
+      "item": [
+
+        {
+          "name": "Link Project to User  →  201",
+          "description": "Run 'Observability / List Projects' first to auto-populate testProjectId.",
+          "event": [{
+            "listen": "test",
+            "script": { "type": "text/javascript", "exec": [
+              "const code = pm.response.code;",
+              "pm.test(\"Status 201 or 409\", () => pm.expect(code).to.be.oneOf([201, 409]));",
+              "if (code === 201) {",
+              "    const j = pm.response.json();",
+              "    pm.expect(j.id).to.be.a(\"string\");",
+              "}"
+            ]}
+          }],
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{adminToken}}", "type": "string" }] },
+            "method": "POST",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/users/{{createdUserId}}/projects/{{testProjectId}}",
+              "host": ["{{baseUrl}}"], "path": ["users","{{createdUserId}}","projects","{{testProjectId}}"] }
+          },
+          "response": []
+        },
+
+        {
+          "name": "List User Projects  →  200",
+          "event": [{
+            "listen": "test",
+            "script": { "type": "text/javascript", "exec": [
+              "pm.test(\"Status 200\", () => pm.response.to.have.status(200));",
+              "pm.test(\"Has user and projects fields\", () => {",
+              "    const j = pm.response.json();",
+              "    pm.expect(j.user).to.be.a(\"string\");",
+              "    pm.expect(j.projects).to.be.an(\"array\");",
+              "});"
+            ]}
+          }],
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{adminToken}}", "type": "string" }] },
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/users/{{createdUserId}}/projects",
+              "host": ["{{baseUrl}}"], "path": ["users","{{createdUserId}}","projects"] }
+          },
+          "response": []
+        },
+
+        {
+          "name": "Unlink Project from User  →  204",
+          "event": [{
+            "listen": "test",
+            "script": { "type": "text/javascript", "exec": [
+              "pm.test(\"Status 204\", () => pm.response.to.have.status(204));"
+            ]}
+          }],
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{adminToken}}", "type": "string" }] },
+            "method": "DELETE",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/users/{{createdUserId}}/projects/{{testProjectId}}",
+              "host": ["{{baseUrl}}"], "path": ["users","{{createdUserId}}","projects","{{testProjectId}}"] }
+          },
+          "response": []
+        }
+
+      ]
+    },
+
+    {
+      "name": "5. Observability",
+      "description": "Actuator endpoints. List Projects also auto-populates testProjectId.",
+      "item": [
+
+        {
+          "name": "Health Check  →  200",
+          "event": [{
+            "listen": "test",
+            "script": { "type": "text/javascript", "exec": [
+              "pm.test(\"Status 200\", () => pm.response.to.have.status(200));",
+              "pm.test(\"Application UP\", () => pm.expect(pm.response.json().status).to.eql(\"UP\"));"
+            ]}
+          }],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/actuator/health", "host": ["{{baseUrl}}"], "path": ["actuator","health"] }
+          },
+          "response": []
+        },
+
+        {
+          "name": "List Projects (projects-api)  →  saves testProjectId",
+          "description": "Calls projects-api and saves the first project UUID to testProjectId.",
+          "event": [{
+            "listen": "test",
+            "script": { "type": "text/javascript", "exec": [
+              "pm.test(\"Status 200\", () => pm.response.to.have.status(200));",
+              "const projects = pm.response.json();",
+              "pm.test(\"Response is array\", () => pm.expect(projects).to.be.an(\"array\"));",
+              "if (projects.length > 0) {",
+              "    pm.collectionVariables.set(\"testProjectId\", projects[0].id);",
+              "    console.log(\"testProjectId saved:\", projects[0].id);",
+              "}"
+            ]}
+          }],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{projectsBaseUrl}}/projects", "host": ["{{projectsBaseUrl}}"], "path": ["projects"] }
+          },
+          "response": []
+        }
+
+      ]
+    }
+
+  ]
+}

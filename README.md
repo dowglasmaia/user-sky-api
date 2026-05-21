@@ -26,6 +26,23 @@ REST API for user management and external project association, built with Java 2
 ![OpenAPI](https://img.shields.io/badge/-OpenAPI%203.1-6BA539?style=flat-square&logo=openapiinitiative&logoColor=white)
 ![JUnit5](https://img.shields.io/badge/-JUnit%205-25A162?style=flat-square&logo=junit5&logoColor=white)
 ![Mockito](https://img.shields.io/badge/-Mockito-78A641?style=flat-square)
+![Claude Code](https://img.shields.io/badge/-Claude%20Code-D97757?style=flat-square&logo=anthropic&logoColor=white)
+
+---
+
+## AI-Assisted Development
+
+This project used [**Claude Code**](https://claude.ai/code) — Anthropic's AI CLI — as a development assistant throughout the engineering process.
+
+| Area | Claude Code contribution |
+|---|---|
+| **Project structure** | Layered architecture design, package conventions, Spring Boot patterns |
+| **Unit tests** | Behaviour-driven test naming, Mockito scenarios, edge-case coverage for `UserService`, `UserController`, `GlobalExceptionHandler` and more |
+| **Business rules** | Role-based access control enforcement (`ROLE_ADMIN` creation guard), `AdminUserSeeder` idempotency strategy |
+| **Postman collection** | Full request suite with dynamic variables, pre-request scripts, automated assertions and teardown logic |
+| **Documentation** | README structure, Javadoc for security-sensitive components, OpenAPI description |
+
+> Claude Code acted as a pair-programmer — every suggestion was reviewed, adjusted, and validated by the development team before being committed.
 
 ---
 
@@ -123,11 +140,19 @@ Controller  →  Service  →  Repository  →  PostgreSQL
 
 | Method | Path | Auth | Status Codes | Description |
 |---|---|---|---|---|
-| POST | `/users` | Public | 201, 400, 409, 429, 500 | Register user |
+| POST | `/users` | Public | 201, 400, 403, 409, 429, 500 | Register user |
 | GET | `/users` | Required | 200, 429, 500 | List users (paginated, sorted by name) |
 | GET | `/users/{id}` | Required | 200, 404, 429, 500 | Get user by UUID |
 | PUT | `/users/{id}` | Required | 200, 400, 404, 409, 429, 500 | Update user (partial) |
 | DELETE | `/users/{id}` | ADMIN only | 204, 403, 404, 429, 500 | Delete user |
+
+**`POST /users` — `role` field rules:**
+
+| Requested role | Caller auth | Result |
+|---|---|---|
+| `ROLE_USER` or omitted | Any / none | 201 Created |
+| `ROLE_ADMIN` | Authenticated as `ROLE_ADMIN` | 201 Created |
+| `ROLE_ADMIN` | Unauthenticated or `ROLE_USER` | 403 Forbidden |
 
 **Query parameters for `GET /users`:**
 
@@ -207,14 +232,6 @@ Request
         ├─ Set SecurityContextHolder
         └─► Next filter → Controller
 ```
-
-### Default Seed Credentials
-
-| Email | Password | Role |
-|---|---|---|
-| `admin@userapi.com` | `Admin@1234` | ROLE_ADMIN |
-
-> **Production note:** `JWT_SECRET` must be ≥ 32 characters. The default insecure value must be replaced before deployment.
 
 ---
 
@@ -413,10 +430,14 @@ Every request carries three identifiers propagated through logs, traces, and err
 | `UserRepository` | `UserRepositoryTest` | 8 |
 | `JwtUtil` | `JwtUtilTest` | 7 |
 | `GlobalExceptionHandler` | `GlobalExceptionHandlerTest` | 12 |
+| `AdminUserSeeder` | `AdminUserSeederTest` | 2 |
+
+> **Total: 86 automated unit/slice tests + 37 Postman requests covering all API scenarios.**
 
 ### Test Infrastructure
 
-- **`UserFixture`**: Builder library for test data (`aUser()`, `anAdminUser()`, `aCreateUserRequest()`, etc.)
+- **`UserFixture`**: Builder library for test data (`aUser()`, `anAdminUser()`, `aCreateUserRequest()`, `aCreateUserRequestWithRole(UserRole)`, etc.)
+- **`JwtTestHelper`**: Generates valid, expired, and invalid JWT tokens for controller slice tests.
 - **MockWebServer** (OkHttp): Used to simulate `projects-api` responses in controller and service tests.
 - **`SimpleMeterRegistry`**: Replaces `MeterRegistry` in unit tests without a Spring context.
 
@@ -449,9 +470,55 @@ curl http://localhost:8081/api/v1/actuator/health
 | Prometheus | http://localhost:9090 | — |
 | Jaeger | http://localhost:16686 | — |
 
-| Email | Password | Role |
-|---|---|---|
-| `admin@userapi.com` | `Admin@1234` | ROLE_ADMIN |
+| Email | Password | Role | Origin |
+|---|---|---|---|
+| `admin@system.com` | `admin123` | ROLE_ADMIN | Auto-seeded on startup (dev/test only) |
+
+---
+
+## Dev Admin Seeder
+
+> **Development and testing only.** This component is never active when `--spring.profiles.active=prod`.
+
+On every startup (non-`prod` profile) the application checks whether `admin@system.com` exists in the database. If not, it creates the account automatically. If the account already exists the operation is skipped silently — restarting the API never causes a conflict error.
+
+| Field | Value |
+|---|---|
+| Email | `admin@system.com` |
+| Password | `admin123` |
+| Role | `ROLE_ADMIN` |
+| Spring profile | Active on all profiles **except** `prod` |
+
+**Quick test flow:**
+
+```bash
+# 1. Obtain a token with the seeded admin
+TOKEN=$(curl -s -X POST http://localhost:8080/api/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"admin@system.com","password":"admin123"}' | jq -r .token)
+
+# 2. Create another admin (requires ROLE_ADMIN)
+curl -s -X POST http://localhost:8080/api/v1/users \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{"name":"New Admin","email":"newadmin@test.com","password":"Pass@1234","role":"ROLE_ADMIN"}'
+
+# 3. Delete a user (ROLE_ADMIN only)
+curl -s -X DELETE http://localhost:8080/api/v1/users/<uuid> \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+**Disabling the seeder:**
+
+```bash
+# Option A — activate prod profile
+mvn spring-boot:run -Dspring-boot.run.profiles=prod
+
+# Option B — Docker / env var
+SPRING_PROFILES_ACTIVE=prod docker compose up
+```
+
+> For production, provision the administrator account through a dedicated Flyway migration (`V*__seed_admin_user.sql`) using an externally generated strong password stored in a secrets manager.
 
 ---
 
@@ -496,4 +563,51 @@ docker compose up -d jaeger prometheus loki promtail grafana
 | OpenAPI spec (YAML) | [src/main/resources/openapi/user-api.yaml](src/main/resources/openapi/user-api.yaml) |
 
 The OpenAPI 3.1 spec is the authoritative source. Controller interfaces and request/response DTOs are generated at build time via the `openapi-generator-maven-plugin`. Do not edit generated classes directly.
+
+---
+
+## Postman Collection
+
+A ready-to-import collection covering all endpoints and edge cases is located at:
+
+**[`src/main/resources/colection-postman/user-appi-test.postman_collection.json`](src/main/resources/colection-postman/user-appi-test.postman_collection.json)**
+
+### How to import
+
+1. Open Postman → **Import** → select the file above.
+2. The collection variables are pre-configured (base URLs, dev admin credentials).
+3. No environment file needed — everything runs from collection variables.
+
+### Folder structure & execution order
+
+Run **Setup** first (once). After that any folder can be run independently.
+
+| # | Folder | Requests | Notes |
+|---|---|---|---|
+| 1 | **Setup** | 3 | Login Admin → Create Test User → Login Test User |
+| 2 | **Auth** | 2 | Wrong password (401), missing field (400) |
+| 3 | **Users** | 9 | List, Get, Update, Create (role rules), Delete |
+| 4 | **Project Links** | 3 | Link, List, Unlink |
+| 5 | **Observability** | 2 | Health check + projects-api list (auto-saves testProjectId) |
+
+### How dependencies are handled
+
+- **Setup / Login as Test User** has a pre-request script that auto-creates the test user if `createdUserId` is not set — so the request is safe to run even on a fresh import.
+- **Create Test User** handles both 201 (first run) and 409 (subsequent runs) gracefully: on 409 the previously saved `createdUserId` is reused automatically.
+- **Delete User — By Admin** clears `createdUserId` and `userToken` at the end so the next full run starts clean.
+
+### Collection variables
+
+| Variable | Default | Set by |
+|---|---|---|
+| `baseUrl` | `http://localhost:8080/api/v1` | Manual |
+| `projectsBaseUrl` | `http://localhost:8081/api/v1` | Manual |
+| `adminEmail` | `admin@system.com` | Manual |
+| `adminPassword` | `admin123` | Manual |
+| `testUserEmail` | `testuser@example.com` | Manual |
+| `testUserPassword` | `TestPass@123` | Manual |
+| `adminToken` | *(empty)* | Setup / Login as Admin |
+| `userToken` | *(empty)* | Setup / Login as Test User |
+| `createdUserId` | *(empty)* | Setup / Create Test User |
+| `testProjectId` | *(empty)* | Observability / List Projects |
 

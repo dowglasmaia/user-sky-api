@@ -14,6 +14,8 @@ import br.com.luciodowglas.openapi.model.UpdateUserRequest;
 import br.com.luciodowglas.openapi.model.UserPageResponse;
 import br.com.luciodowglas.openapi.model.UserProjectsResponse;
 import br.com.luciodowglas.openapi.model.UserResponse;
+import br.com.luciodowglas.openapi.model.UserRole;
+import br.com.luciodowglas.openapi.model.UserRole;
 
 import java.util.List;
 import java.util.UUID;
@@ -62,6 +64,14 @@ public final class UserFixture {
                 .name("Alice")
                 .email(USER_EMAIL)
                 .password(RAW_PASSWORD);
+    }
+
+    public static CreateUserRequest aCreateUserRequestWithRole(UserRole role) {
+        return new CreateUserRequest()
+                .name("Alice")
+                .email(USER_EMAIL)
+                .password(RAW_PASSWORD)
+                .role(role);
     }
 
     public static UpdateUserRequest anUpdateUserRequest() {
