@@ -1,5 +1,6 @@
 package com.luciodowglas.userapi.exception;
 
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -22,6 +23,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -96,6 +98,12 @@ class GlobalExceptionHandlerTest {
 
         @PostMapping("/test/validation")
         void validation(@Valid @RequestBody CreateUserRequest req) {}
+
+        @GetMapping("/test/missing-param")
+        void missingParam(@RequestParam String required) {}
+
+        @GetMapping("/test/method-only-get")
+        void methodOnlyGet() {}
     }
 
     // ── 404 ───────────────────────────────────────────────────────────────────
@@ -197,5 +205,52 @@ class GlobalExceptionHandlerTest {
         mockMvc.perform(get("/test/access-denied"))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.status").value(403));
+    }
+
+    // ── 404 — rota inexistente ────────────────────────────────────────────────
+
+    @Test
+    @WithMockUser
+    void unknownRoute_isReported_asNotFoundWith404() throws Exception {
+        mockMvc.perform(get("/test/this-endpoint-does-not-exist"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.status").value(404))
+                .andExpect(jsonPath("$.title").value("Endpoint not found"));
+    }
+
+    // ── 405 — método HTTP errado ──────────────────────────────────────────────
+
+    @Test
+    @WithMockUser
+    void wrongHttpMethod_isReported_asMethodNotAllowedWith405() throws Exception {
+        mockMvc.perform(delete("/test/method-only-get"))
+                .andExpect(status().isMethodNotAllowed())
+                .andExpect(jsonPath("$.status").value(405))
+                .andExpect(jsonPath("$.title").value("Method not allowed"));
+    }
+
+    // ── 400 — JSON malformado ─────────────────────────────────────────────────
+
+    @Test
+    @WithMockUser
+    void malformedJson_isReported_asBadRequestWith400() throws Exception {
+        mockMvc.perform(post("/test/validation")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{not valid json"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.title").value("Malformed request body"));
+    }
+
+    // ── 400 — query param obrigatório ausente ─────────────────────────────────
+
+    @Test
+    @WithMockUser
+    void missingRequiredQueryParam_isReported_asBadRequestWith400() throws Exception {
+        mockMvc.perform(get("/test/missing-param"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.title").value("Missing request parameter"))
+                .andExpect(jsonPath("$.detail").value("Required parameter 'required' is missing."));
     }
 }
