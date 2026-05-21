@@ -26,6 +26,8 @@ REST API for user management and external project association, built with Java 2
 ![OpenAPI](https://img.shields.io/badge/-OpenAPI%203.1-6BA539?style=flat-square&logo=openapiinitiative&logoColor=white)
 ![JUnit5](https://img.shields.io/badge/-JUnit%205-25A162?style=flat-square&logo=junit5&logoColor=white)
 ![Mockito](https://img.shields.io/badge/-Mockito-78A641?style=flat-square)
+![GitHub](https://img.shields.io/badge/-GitHub-181717?style=flat-square&logo=github&logoColor=white)
+![GitHub Actions](https://img.shields.io/badge/-GitHub%20Actions-2088FF?style=flat-square&logo=githubactions&logoColor=white)
 ![Claude Code](https://img.shields.io/badge/-Claude%20Code-D97757?style=flat-square&logo=anthropic&logoColor=white)
 
 ---

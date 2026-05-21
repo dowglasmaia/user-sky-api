@@ -9,6 +9,8 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
     steps:
       - name: Checkout
@@ -22,6 +24,8 @@ jobs:
           cache: maven
 
       - name: Build and test
-        run: ./mvnw verify
+        run: |
+          chmod +x ./mvnw
+          ./mvnw verify
         env:
           SPRING_PROFILES_ACTIVE: test
