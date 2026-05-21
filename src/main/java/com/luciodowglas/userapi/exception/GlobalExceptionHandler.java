@@ -8,13 +8,19 @@ import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.BadCredentialsException;
+import org.springframework.web.HttpMediaTypeNotSupportedException;
+import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import io.github.resilience4j.ratelimiter.RequestNotPermitted;
 import jakarta.servlet.http.HttpServletRequest;
@@ -88,10 +94,24 @@ public class GlobalExceptionHandler {
                 "Rate limit exceeded. Please slow down.", request);
     }
 
+    @ExceptionHandler(HttpMediaTypeNotSupportedException.class)
+    public ProblemDetail handleMediaType(HttpMediaTypeNotSupportedException ex, HttpServletRequest request) {
+        log.warn("[HTTP][REQUEST][FAILED] reason=unsupported_content_type path={} contentType={}",
+                request.getRequestURI(), request.getContentType());
+        return problem(HttpStatus.UNSUPPORTED_MEDIA_TYPE, "Unsupported media type",
+                "Set Content-Type: application/json (or omit body entirely).", request);
+    }
+
     @ExceptionHandler(BadCredentialsException.class)
     public ProblemDetail handleBadCredentials(BadCredentialsException ex, HttpServletRequest request) {
         log.warn("bad_credentials path={}", request.getRequestURI());
         return problem(HttpStatus.UNAUTHORIZED, "Unauthorized", "Invalid email or password.", request);
+    }
+
+    @ExceptionHandler(InsufficientPrivilegesException.class)
+    public ProblemDetail handleInsufficientPrivileges(InsufficientPrivilegesException ex, HttpServletRequest request) {
+        log.warn("insufficient_privileges path={} message={}", request.getRequestURI(), ex.getMessage());
+        return problem(HttpStatus.FORBIDDEN, "Access denied", ex.getMessage(), request);
     }
 
     @ExceptionHandler(AccessDeniedException.class)
@@ -99,6 +119,44 @@ public class GlobalExceptionHandler {
         log.warn("access_denied path={}", request.getRequestURI());
         return problem(HttpStatus.FORBIDDEN, "Access denied",
                 "You do not have permission to perform this action.", request);
+    }
+
+    @ExceptionHandler(NoResourceFoundException.class)
+    public ProblemDetail handleNoResource(NoResourceFoundException ex, HttpServletRequest request) {
+        log.info("endpoint_not_found path={}", request.getRequestURI());
+        return problem(HttpStatus.NOT_FOUND, "Endpoint not found",
+                "The requested endpoint does not exist.", request);
+    }
+
+    @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
+    public ProblemDetail handleMethodNotAllowed(HttpRequestMethodNotSupportedException ex,
+                                               HttpServletRequest request) {
+        log.warn("method_not_allowed path={} method={}", request.getRequestURI(), ex.getMethod());
+        return problem(HttpStatus.METHOD_NOT_ALLOWED, "Method not allowed",
+                "HTTP method '" + ex.getMethod() + "' is not supported for this endpoint.", request);
+    }
+
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    public ProblemDetail handleUnreadableBody(HttpMessageNotReadableException ex, HttpServletRequest request) {
+        log.warn("malformed_request_body path={}", request.getRequestURI());
+        return problem(HttpStatus.BAD_REQUEST, "Malformed request body",
+                "The request body could not be parsed. Ensure it is valid JSON.", request);
+    }
+
+    @ExceptionHandler(MissingServletRequestParameterException.class)
+    public ProblemDetail handleMissingParam(MissingServletRequestParameterException ex,
+                                           HttpServletRequest request) {
+        log.warn("missing_request_parameter path={} param={}", request.getRequestURI(), ex.getParameterName());
+        return problem(HttpStatus.BAD_REQUEST, "Missing request parameter",
+                "Required parameter '" + ex.getParameterName() + "' is missing.", request);
+    }
+
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    public ProblemDetail handleTypeMismatch(MethodArgumentTypeMismatchException ex, HttpServletRequest request) {
+        log.warn("invalid_parameter_type path={} param={} value={}", request.getRequestURI(),
+                ex.getName(), ex.getValue());
+        return problem(HttpStatus.BAD_REQUEST, "Invalid parameter type",
+                "Parameter '" + ex.getName() + "' has an invalid value.", request);
     }
 
     @ExceptionHandler(Exception.class)

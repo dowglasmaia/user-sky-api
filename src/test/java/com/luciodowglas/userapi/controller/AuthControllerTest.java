@@ -1,16 +1,16 @@
-/*
 package com.luciodowglas.userapi.controller;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import java.util.List;
-
+import com.luciodowglas.userapi.security.JwtAuthFilter;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.annotation.Import;
@@ -19,6 +19,7 @@ import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -26,10 +27,12 @@ import com.luciodowglas.userapi.config.SecurityConfig;
 import com.luciodowglas.userapi.security.JwtUtil;
 import com.luciodowglas.userapi.security.UserDetailsServiceImpl;
 
-import br.com.luciodowglas.openapi.model.LoginRequest;
+import java.util.List;
 
 @WebMvcTest(AuthController.class)
-@Import(SecurityConfig.class)
+@AutoConfigureMockMvc(addFilters = false)
+//@Import(SecurityConfig.class)
+@ActiveProfiles("test")
 class AuthControllerTest {
 
     @Autowired MockMvc mockMvc;
@@ -39,34 +42,90 @@ class AuthControllerTest {
     @MockBean JwtUtil jwtUtil;
     @MockBean UserDetailsServiceImpl userDetailsService;
 
+    @MockBean
+    JwtAuthFilter jwtAuthFilter;
+
     @Test
-    void login_withValidCredentials_returns200WithToken() throws Exception {
+    void user_receivesJwtToken_onSuccessfulLogin() throws Exception {
+        // given
         var auth = new UsernamePasswordAuthenticationToken(
-                "admin@userapi.com", null,
-                List.of(new SimpleGrantedAuthority("ROLE_ADMIN")));
-
+                "alice@test.com", null, List.of(new SimpleGrantedAuthority("ROLE_USER")));
         when(authenticationManager.authenticate(any())).thenReturn(auth);
-        when(jwtUtil.generateToken("admin@userapi.com", "ROLE_ADMIN")).thenReturn("mocked.jwt.token");
+        when(jwtUtil.generateToken("alice@test.com", "ROLE_USER")).thenReturn("jwt.token.value");
 
+        // when / then
         mockMvc.perform(post("/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(
-                                new LoginRequest().email("admin@userapi.com").password("Admin@1234"))))
+                        .content("""
+                                {"email":"alice@test.com","password":"Secret123!"}
+                                """))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.token").value("mocked.jwt.token"));
+                .andExpect(jsonPath("$.token").value("jwt.token.value"));
     }
 
     @Test
-    void login_withInvalidCredentials_returns401() throws Exception {
-        when(authenticationManager.authenticate(any()))
-                .thenThrow(new BadCredentialsException("Bad credentials"));
+    void admin_receivesTokenWithAdminRole_onSuccessfulLogin() throws Exception {
+        // given
+        var auth = new UsernamePasswordAuthenticationToken(
+                "admin@test.com", null, List.of(new SimpleGrantedAuthority("ROLE_ADMIN")));
+        when(authenticationManager.authenticate(any())).thenReturn(auth);
+        when(jwtUtil.generateToken("admin@test.com", "ROLE_ADMIN")).thenReturn("admin.token");
 
+        // when
         mockMvc.perform(post("/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(
-                                new LoginRequest().email("bad@test.com").password("wrong"))))
+                        .content("""
+                                {"email":"admin@test.com","password":"Secret123!"}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.token").value("admin.token"));
+
+        // then — verify correct role was extracted and passed to token generator
+        verify(jwtUtil).generateToken("admin@test.com", "ROLE_ADMIN");
+    }
+
+    @Test
+    void login_isRejected_whenCredentialsAreInvalid() throws Exception {
+        // given
+        when(authenticationManager.authenticate(any()))
+                .thenThrow(new BadCredentialsException("bad credentials"));
+
+        // when / then
+        mockMvc.perform(post("/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"email":"alice@test.com","password":"WrongPassword1!"}
+                                """))
                 .andExpect(status().isUnauthorized())
-                .andExpect(jsonPath("$.status").value(401));
+                .andExpect(jsonPath("$.status").value(401))
+                .andExpect(jsonPath("$.title").value("Unauthorized"));
+    }
+
+    @Test
+    void login_isRejected_whenEmailIsMissing() throws Exception {
+        mockMvc.perform(post("/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"password":"Secret123!"}
+                                """))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void login_isRejected_whenPasswordIsMissing() throws Exception {
+        mockMvc.perform(post("/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"email":"alice@test.com"}
+                                """))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void login_isRejected_whenBodyIsEmpty() throws Exception {
+        mockMvc.perform(post("/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isBadRequest());
     }
 }
-*/

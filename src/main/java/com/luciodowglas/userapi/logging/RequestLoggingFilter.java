@@ -16,6 +16,7 @@ import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import org.springframework.lang.NonNull;
 
 @Component
 @Order(Ordered.HIGHEST_PRECEDENCE)
@@ -25,6 +26,11 @@ public class RequestLoggingFilter extends OncePerRequestFilter {
     private static final String TRACE_ID_MDC = "traceId";
     private static final String CORRELATION_ID_MDC = "correlationId";
     private static final String CORRELATION_ID_HEADER = "X-Correlation-Id";
+
+    @Override
+    protected boolean shouldNotFilter(@NonNull HttpServletRequest request) {
+        return request.getRequestURI().contains("/actuator");
+    }
 
     @Override
     protected void doFilterInternal(HttpServletRequest request,

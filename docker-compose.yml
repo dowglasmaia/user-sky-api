@@ -1,54 +1,177 @@
 version: "3.9"
 
+# ============================================================
+#  User API — local development stack
+#
+#  Services
+#    core:          postgres · projects-api · user-api
+#    observability: prometheus · jaeger · loki · grafana
+#
+#  Usage
+#    docker compose up -d --build
+#
+#  Endpoints
+#    user-api  : http://localhost:8080/api/v1
+#    Swagger   : http://localhost:8080/api/v1/swagger-ui/index.html
+#    Grafana   : http://localhost:3000   (admin / admin)
+#    Prometheus: http://localhost:9090
+#    Jaeger    : http://localhost:16686
+# ============================================================
+
+networks:
+  app-net:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  prometheus_data:
+  grafana_data:
+  loki_data:
+
 services:
 
+  # ── Database ─────────────────────────────────────────────
   postgres:
     image: postgres:16-alpine
     container_name: userapi-postgres
+    networks: [ app-net ]
     environment:
       POSTGRES_DB: userapi
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
     ports:
       - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d userapi"]
+      test: [ "CMD-SHELL", "pg_isready -U postgres -d userapi" ]
       interval: 10s
       timeout: 5s
       retries: 5
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
 
+  # ── External projects catalogue ───────────────────────────
   projects-api:
-    image: dowglasmaia/product-api:v3
-    container_name: project-api
+    image: dowglasmaia/product-api:v4
+    container_name: projects-api
+    networks: [ app-net ]
     ports:
       - "8081:8081"
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318/v1/traces
+    depends_on:
+      jaeger:
+        condition: service_started
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:8081/api/v1/actuator/health | grep -q '\"UP\"' || exit 1"]
+      test: [ "CMD-SHELL", "wget -qO- http://localhost:8081/api/v1/actuator/health | grep -q '\"UP\"' || exit 1" ]
       interval: 15s
       timeout: 5s
-      start_period: 30s
+      start_period: 45s
+      retries: 5
+    restart: unless-stopped
+
+  # ── Main API ──────────────────────────────────────────────
+  user-api:
+    build:
+      context: .
+    container_name: user-api
+    networks: [ app-net ]
+    ports:
+      - "8080:8080"
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      DB_URL: jdbc:postgresql://postgres:5432/userapi
+      DB_USERNAME: postgres
+      DB_PASSWORD: postgres
+      JWT_SECRET: change-this-to-a-secure-256-bit-secret-key-in-production
+      JWT_EXPIRATION_MS: 86400000
+      PROJECTS_API_BASE_URL: http://projects-api:8081/api/v1
+      # Jaeger OTLP endpoint (traces)
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318/v1/traces
+    depends_on:
+      postgres:
+        condition: service_healthy
+      projects-api:
+        condition: service_healthy
+      jaeger:
+        condition: service_started
+    healthcheck:
+      test: [ "CMD-SHELL", "wget -qO- http://localhost:8080/api/v1/actuator/health | grep -q '\"UP\"' || exit 1" ]
+      interval: 30s
+      timeout: 10s
+      start_period: 60s
       retries: 3
+    restart: unless-stopped
 
-#  user-api:
-#    build:
-#      context: .
-#    container_name: user-api
-#    ports:
-#      - "8080:8080"
-#    environment:
-#      DB_URL: jdbc:postgresql://postgres:5432/userapi
-#      DB_USERNAME: postgres
-#      DB_PASSWORD: postgres
-#      JWT_SECRET: change-this-to-a-secure-256-bit-secret-key-in-production
-#      JWT_EXPIRATION_MS: 86400000
-#      PROJECTS_API_BASE_URL: http://projects-api:8081/api/v1
-#    depends_on:
-#      postgres:
-#        condition: service_healthy
-#      projects-api:
-#        condition: service_healthy
+  # ── Jaeger (distributed tracing) ─────────────────────────
+  jaeger:
+    image: jaegertracing/all-in-one:1.57
+    container_name: jaeger
+    networks: [ app-net ]
+    ports:
+      - "16686:16686"   # Jaeger UI
+      - "4317:4317"     # OTLP gRPC
+      - "4318:4318"     # OTLP HTTP  ← user-api sends traces here
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    restart: unless-stopped
 
-volumes:
-  postgres_data:
+  # ── Prometheus (metrics scraping) ────────────────────────
+  prometheus:
+    image: prom/prometheus:v2.51.2
+    container_name: prometheus
+    networks: [ app-net ]
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=7d
+      - --web.enable-lifecycle
+    depends_on:
+      user-api:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ── Loki (log storage) ───────────────────────────────────
+  loki:
+    image: grafana/loki:2.9.4
+    container_name: loki
+    networks: [ app-net ]
+    ports:
+      - "3100:3100"
+    volumes:
+      - ./observability/loki/loki-config.yml:/etc/loki/loki-config.yml:ro
+      - loki_data:/loki
+    command: -config.file=/etc/loki/loki-config.yml
+    healthcheck:
+      test: [ "CMD-SHELL", "wget -qO- http://localhost:3100/ready | grep -q 'ready' || exit 1" ]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # ── Grafana (dashboards) ──────────────────────────────────
+  grafana:
+    image: grafana/grafana:10.4.2
+    container_name: grafana
+    networks: [ app-net ]
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_FEATURE_TOGGLES_ENABLE: traceqlEditor
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+    depends_on:
+      - prometheus
+      - loki
+      - jaeger
+    restart: unless-stopped

@@ -1,6 +1,6 @@
-/*
 package com.luciodowglas.userapi.service;
 
+import static com.luciodowglas.userapi.fixture.UserFixture.*;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -8,137 +8,344 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
-import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
 import com.luciodowglas.userapi.entity.User;
+import com.luciodowglas.userapi.exception.InsufficientPrivilegesException;
 import com.luciodowglas.userapi.exception.UserAlreadyExistsException;
 import com.luciodowglas.userapi.exception.UserNotFoundException;
 import com.luciodowglas.userapi.mapper.UserMapper;
 import com.luciodowglas.userapi.repository.UserRepository;
 import com.luciodowglas.userapi.security.RoleEnum;
 
-import br.com.luciodowglas.openapi.model.CreateUserRequest;
 import br.com.luciodowglas.openapi.model.UpdateUserRequest;
-import br.com.luciodowglas.openapi.model.UserResponse;
+import br.com.luciodowglas.openapi.model.UserRole;
 
 @ExtendWith(MockitoExtension.class)
 class UserServiceTest {
 
     @Mock private UserRepository userRepository;
     @Mock private PasswordEncoder passwordEncoder;
-    @Mock private UserMapper userMapper;
 
-    @InjectMocks
+    private final UserMapper userMapper = new UserMapper();
     private UserService userService;
 
-    private static final UUID USER_ID = UUID.fromString("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
+    @BeforeEach
+    void setUp() {
+        userService = new UserService(userRepository, passwordEncoder, userMapper);
+    }
+
+    @AfterEach
+    void clearSecurityContext() {
+        SecurityContextHolder.clearContext();
+    }
+
+    private void authenticateAs(RoleEnum role) {
+        Collection<SimpleGrantedAuthority> authorities = List.of(new SimpleGrantedAuthority(role.name()));
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken("user", null, authorities));
+    }
+
+    // ── Registration ─────────────────────────────────────────────────────────
 
     @Test
-    void createUser_whenEmailFree_savesAndReturns201() {
-        var request = new CreateUserRequest().name("Alice").email("alice@test.com").password("Secret123");
-        var saved = User.builder().id(USER_ID).name("Alice").email("alice@test.com")
-                .password("$encoded").role(RoleEnum.ROLE_USER).build();
-        var expected = new UserResponse().id(USER_ID).name("Alice").email("alice@test.com");
+    void user_canRegisterSuccessfully_whenEmailIsNotYetTaken() {
+        // given
+        var request = aCreateUserRequest();
+        var saved = aUser();
 
-        when(userRepository.existsByEmail("alice@test.com")).thenReturn(false);
-        when(passwordEncoder.encode("Secret123")).thenReturn("$encoded");
+        when(userRepository.existsByEmail(USER_EMAIL)).thenReturn(false);
+        when(passwordEncoder.encode(RAW_PASSWORD)).thenReturn("$2a$12$encodedpasswordhash");
         when(userRepository.save(any(User.class))).thenReturn(saved);
-        when(userMapper.toResponse(saved)).thenReturn(expected);
 
+        // when
         var result = userService.createUser(request);
 
+        // then
         assertThat(result.getId()).isEqualTo(USER_ID);
-        assertThat(result.getEmail()).isEqualTo("alice@test.com");
-        verify(passwordEncoder).encode("Secret123");
+        assertThat(result.getEmail()).isEqualTo(USER_EMAIL);
         verify(userRepository).save(any(User.class));
     }
 
     @Test
-    void createUser_whenEmailTaken_throwsConflict() {
-        var request = new CreateUserRequest().name("Alice").email("alice@test.com").password("Secret123");
-        when(userRepository.existsByEmail("alice@test.com")).thenReturn(true);
+    void user_registrationDefaultsToRoleUser_whenRoleIsOmitted() {
+        // given
+        when(userRepository.existsByEmail(USER_EMAIL)).thenReturn(false);
+        when(passwordEncoder.encode(RAW_PASSWORD)).thenReturn("$encoded");
+        when(userRepository.save(any(User.class))).thenReturn(aUser());
 
-        assertThatThrownBy(() -> userService.createUser(request))
-                .isInstanceOf(UserAlreadyExistsException.class)
-                .hasMessageContaining("alice@test.com");
+        // when
+        userService.createUser(aCreateUserRequest()); // no role set
+
+        // then
+        ArgumentCaptor<User> captor = ArgumentCaptor.forClass(User.class);
+        verify(userRepository).save(captor.capture());
+        assertThat(captor.getValue().getRole()).isEqualTo(RoleEnum.ROLE_USER);
+    }
+
+    @Test
+    void user_registrationUsesRoleAdmin_whenRequestedByAnAdmin() {
+        // given
+        authenticateAs(RoleEnum.ROLE_ADMIN);
+        when(userRepository.existsByEmail(USER_EMAIL)).thenReturn(false);
+        when(passwordEncoder.encode(RAW_PASSWORD)).thenReturn("$encoded");
+        when(userRepository.save(any(User.class))).thenReturn(anAdminUser());
+
+        // when
+        userService.createUser(aCreateUserRequestWithRole(UserRole.ADMIN));
+
+        // then
+        ArgumentCaptor<User> captor = ArgumentCaptor.forClass(User.class);
+        verify(userRepository).save(captor.capture());
+        assertThat(captor.getValue().getRole()).isEqualTo(RoleEnum.ROLE_ADMIN);
+    }
+
+    @Test
+    void user_registrationFails_whenNonAdminTriesToCreateAdminUser() {
+        // given — unauthenticated request (no SecurityContext)
+        when(userRepository.existsByEmail(USER_EMAIL)).thenReturn(false);
+
+        // when / then
+        assertThatThrownBy(() -> userService.createUser(aCreateUserRequestWithRole(UserRole.ADMIN)))
+                .isInstanceOf(InsufficientPrivilegesException.class)
+                .hasMessageContaining("Only administrators");
 
         verify(userRepository, never()).save(any());
     }
 
     @Test
-    void getUserById_whenExists_returnsResponse() {
-        var user = User.builder().id(USER_ID).email("alice@test.com").name("Alice").build();
-        var expected = new UserResponse().id(USER_ID).email("alice@test.com").name("Alice");
+    void user_registrationFails_whenRoleUserTriesToCreateAdminUser() {
+        // given — authenticated but only as ROLE_USER
+        authenticateAs(RoleEnum.ROLE_USER);
+        when(userRepository.existsByEmail(USER_EMAIL)).thenReturn(false);
 
+        // when / then
+        assertThatThrownBy(() -> userService.createUser(aCreateUserRequestWithRole(UserRole.ADMIN)))
+                .isInstanceOf(InsufficientPrivilegesException.class)
+                .hasMessageContaining("Only administrators");
+
+        verify(userRepository, never()).save(any());
+    }
+
+    @Test
+    void user_passwordIsNeverStoredInPlainText() {
+        // given
+        when(userRepository.existsByEmail(USER_EMAIL)).thenReturn(false);
+        when(passwordEncoder.encode(RAW_PASSWORD)).thenReturn("$2a$12$encodedpasswordhash");
+        when(userRepository.save(any(User.class))).thenReturn(aUser());
+
+        // when
+        userService.createUser(aCreateUserRequest());
+
+        // then
+        verify(passwordEncoder).encode(RAW_PASSWORD);
+
+        ArgumentCaptor<User> captor = ArgumentCaptor.forClass(User.class);
+        verify(userRepository).save(captor.capture());
+        assertThat(captor.getValue().getPassword()).isEqualTo("$2a$12$encodedpasswordhash");
+        assertThat(captor.getValue().getPassword()).doesNotContain(RAW_PASSWORD);
+    }
+
+    @Test
+    void user_cannotRegister_whenEmailAlreadyExists() {
+        // given
+        when(userRepository.existsByEmail(USER_EMAIL)).thenReturn(true);
+
+        // when / then
+        assertThatThrownBy(() -> userService.createUser(aCreateUserRequest()))
+                .isInstanceOf(UserAlreadyExistsException.class)
+                .hasMessageContaining(USER_EMAIL);
+
+        verify(userRepository, never()).save(any());
+        verify(passwordEncoder, never()).encode(any());
+    }
+
+    // ── Retrieval ─────────────────────────────────────────────────────────────
+
+    @Test
+    void user_canBeFoundById_whenExists() {
+        // given
+        var user = aUser();
         when(userRepository.findById(USER_ID)).thenReturn(Optional.of(user));
-        when(userMapper.toResponse(user)).thenReturn(expected);
 
+        // when
         var result = userService.getUserById(USER_ID);
 
+        // then
         assertThat(result.getId()).isEqualTo(USER_ID);
+        assertThat(result.getEmail()).isEqualTo(USER_EMAIL);
     }
 
     @Test
-    void getUserById_whenMissing_throwsNotFound() {
+    void user_retrievalFails_whenIdIsUnknown() {
+        // given
         when(userRepository.findById(USER_ID)).thenReturn(Optional.empty());
 
+        // when / then
         assertThatThrownBy(() -> userService.getUserById(USER_ID))
-                .isInstanceOf(UserNotFoundException.class);
+                .isInstanceOf(UserNotFoundException.class)
+                .hasMessageContaining(USER_ID.toString());
     }
 
+    // ── Update ────────────────────────────────────────────────────────────────
+
     @Test
-    void updateUser_whenEmailChangedAndFree_updates() {
-        var user = User.builder().id(USER_ID).email("old@test.com").name("Alice").build();
+    void user_canUpdateEmailAndName_whenNewEmailIsAvailable() {
+        // given
+        var user = User.builder().id(USER_ID).email("old@test.com").name("Alice").role(RoleEnum.ROLE_USER).build();
         var request = new UpdateUserRequest().email("new@test.com").name("Alice Updated");
-        var expected = new UserResponse().id(USER_ID).email("new@test.com").name("Alice Updated");
 
         when(userRepository.findById(USER_ID)).thenReturn(Optional.of(user));
         when(userRepository.existsByEmail("new@test.com")).thenReturn(false);
         when(userRepository.save(user)).thenReturn(user);
-        when(userMapper.toResponse(user)).thenReturn(expected);
 
+        // when
         var result = userService.updateUser(USER_ID, request);
 
+        // then
         assertThat(result.getEmail()).isEqualTo("new@test.com");
+        verify(userRepository).save(user);
     }
 
     @Test
-    void updateUser_whenNewEmailTaken_throwsConflict() {
-        var user = User.builder().id(USER_ID).email("old@test.com").name("Alice").build();
+    void user_emailUpdate_skipsUniquenessCheck_whenEmailUnchanged() {
+        // given
+        var user = User.builder().id(USER_ID).email(USER_EMAIL).name("Alice").role(RoleEnum.ROLE_USER).build();
+        var request = new UpdateUserRequest().email(USER_EMAIL).name("New Name");
+
+        when(userRepository.findById(USER_ID)).thenReturn(Optional.of(user));
+        when(userRepository.save(user)).thenReturn(user);
+
+        // when
+        userService.updateUser(USER_ID, request);
+
+        // then — email is the same, no uniqueness check should be performed
+        verify(userRepository, never()).existsByEmail(any());
+    }
+
+    @Test
+    void user_cannotUpdateEmail_whenNewEmailIsTakenByAnotherUser() {
+        // given
+        var user = User.builder().id(USER_ID).email("old@test.com").name("Alice").role(RoleEnum.ROLE_USER).build();
         var request = new UpdateUserRequest().email("taken@test.com");
 
         when(userRepository.findById(USER_ID)).thenReturn(Optional.of(user));
         when(userRepository.existsByEmail("taken@test.com")).thenReturn(true);
 
+        // when / then
         assertThatThrownBy(() -> userService.updateUser(USER_ID, request))
-                .isInstanceOf(UserAlreadyExistsException.class);
+                .isInstanceOf(UserAlreadyExistsException.class)
+                .hasMessageContaining("taken@test.com");
+
+        verify(userRepository, never()).save(any());
     }
 
     @Test
-    void deleteUser_whenExists_callsRepository() {
+    void user_nameIsNotCleared_whenNameIsOmittedFromUpdateRequest() {
+        // given
+        var user = User.builder().id(USER_ID).email(USER_EMAIL).name("Alice").role(RoleEnum.ROLE_USER).build();
+        var request = new UpdateUserRequest().name(null); // name intentionally omitted
+
+        when(userRepository.findById(USER_ID)).thenReturn(Optional.of(user));
+        when(userRepository.save(user)).thenReturn(user);
+
+        // when
+        userService.updateUser(USER_ID, request);
+
+        // then — null name must not overwrite the existing name
+        ArgumentCaptor<User> captor = ArgumentCaptor.forClass(User.class);
+        verify(userRepository).save(captor.capture());
+        assertThat(captor.getValue().getName()).isEqualTo("Alice");
+    }
+
+    @Test
+    void user_updateFails_whenUserDoesNotExist() {
+        // given
+        when(userRepository.findById(USER_ID)).thenReturn(Optional.empty());
+
+        // when / then
+        assertThatThrownBy(() -> userService.updateUser(USER_ID, anUpdateUserRequest()))
+                .isInstanceOf(UserNotFoundException.class);
+    }
+
+    // ── Listing ───────────────────────────────────────────────────────────────
+
+    @Test
+    void users_areListedAlphabetically_byNameAscending() {
+        // given
+        var page = new PageImpl<>(List.of(aUser()), PageRequest.of(0, 20, Sort.by("name").ascending()), 1);
+        when(userRepository.findAll(any(Pageable.class))).thenReturn(page);
+
+        // when
+        userService.listUsers(0, 20);
+
+        // then
+        ArgumentCaptor<Pageable> captor = ArgumentCaptor.forClass(Pageable.class);
+        verify(userRepository).findAll(captor.capture());
+        Sort.Order order = captor.getValue().getSort().getOrderFor("name");
+        assertThat(order).isNotNull();
+        assertThat(order.getDirection()).isEqualTo(Sort.Direction.ASC);
+    }
+
+    @Test
+    void users_listRespects_pageAndSizeParameters() {
+        // given
+        PageImpl<User> page = new PageImpl<>(List.of(), PageRequest.of(2, 5), 0);
+        when(userRepository.findAll(any(Pageable.class))).thenReturn(page);
+
+        // when
+        userService.listUsers(2, 5);
+
+        // then
+        ArgumentCaptor<Pageable> captor = ArgumentCaptor.forClass(Pageable.class);
+        verify(userRepository).findAll(captor.capture());
+        assertThat(captor.getValue().getPageNumber()).isEqualTo(2);
+        assertThat(captor.getValue().getPageSize()).isEqualTo(5);
+    }
+
+    // ── Deletion ──────────────────────────────────────────────────────────────
+
+    @Test
+    void user_canBeDeleted_whenExists() {
+        // given
         when(userRepository.existsById(USER_ID)).thenReturn(true);
 
+        // when
         userService.deleteUser(USER_ID);
 
+        // then — must use custom JPQL query, not the default JPA deleteById
         verify(userRepository).deleteByIdDirect(USER_ID);
+        verify(userRepository, never()).deleteById(any());
     }
 
     @Test
-    void deleteUser_whenMissing_throwsNotFound() {
+    void user_deletionFails_whenUserDoesNotExist() {
+        // given
         when(userRepository.existsById(USER_ID)).thenReturn(false);
 
+        // when / then
         assertThatThrownBy(() -> userService.deleteUser(USER_ID))
-                .isInstanceOf(UserNotFoundException.class);
+                .isInstanceOf(UserNotFoundException.class)
+                .hasMessageContaining(USER_ID.toString());
 
         verify(userRepository, never()).deleteByIdDirect(any());
     }
 }
-*/

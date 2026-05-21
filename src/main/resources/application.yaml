@@ -67,6 +67,23 @@ management:
     metrics:
       export:
         enabled: true
+  metrics:
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true    # enables _bucket → histogram_quantile in Grafana
+      slo:
+        http.server.requests: 50ms,100ms,200ms,500ms,1s,2s
+  # Distributed tracing (Micrometer → OpenTelemetry → Jaeger)
+  tracing:
+    sampling:
+      probability: 1.0   # 100% sampling; lower in production (e.g. 0.1)
+  otlp:
+    tracing:
+      endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4318/v1/traces}
+  # Expose traceId/spanId in /actuator/health and error responses
+  observations:
+    annotations:
+      enabled: true
 
 logging:
   level:
@@ -74,8 +91,9 @@ logging:
     com.luciodowglas.userapi: DEBUG
     org.springframework.security: INFO
     org.hibernate.SQL: INFO
-  pattern:
-    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} traceId=%X{traceId} correlationId=%X{correlationId} - %msg%n"
+  # Human-readable pattern (active when logback-spring.xml "default" profile is used)
+  #pattern:
+  #  console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} traceId=%X{traceId} spanId=%X{spanId} correlationId=%X{correlationId} - %msg%n"
 
 resilience4j:
   ratelimiter:

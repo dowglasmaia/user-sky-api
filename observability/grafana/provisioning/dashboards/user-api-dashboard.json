@@ -1,0 +1,392 @@
+{
+  "title": "User API — Observability",
+  "uid": "user-api-main",
+  "description": "HTTP metrics, JVM, HikariCP, Resilience4j, business metrics and logs for user-api",
+  "schemaVersion": 38,
+  "version": 2,
+  "refresh": "15s",
+  "timezone": "browser",
+  "tags": ["user-api", "spring-boot", "java"],
+  "time": { "from": "now-1h", "to": "now" },
+  "timepicker": {},
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "links": [],
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": { "type": "grafana", "uid": "-- Grafana --" },
+        "enable": true, "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "templating": { "list": [] },
+  "panels": [
+
+    {
+      "id": 1, "type": "stat",
+      "title": "Request Rate",
+      "description": "API requests/s — actuator excluded",
+      "gridPos": { "x": 0, "y": 0, "w": 4, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "background", "graphMode": "area", "textMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "color": { "mode": "thresholds" },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "blue", "value": null }] }
+        }, "overrides": []
+      },
+      "targets": [{
+        "expr": "sum(rate(http_server_requests_seconds_count{job=\"user-api\",uri!~\".*actuator.*\"}[5m]))",
+        "legendFormat": "req/s", "refId": "A"
+      }]
+    },
+
+    {
+      "id": 2, "type": "stat",
+      "title": "Error Rate (5xx)",
+      "description": "HTTP 5xx/s — actuator excluded",
+      "gridPos": { "x": 4, "y": 0, "w": 4, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "background", "graphMode": "area", "textMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "color": { "mode": "thresholds" },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 0.01 }] }
+        }, "overrides": []
+      },
+      "targets": [{
+        "expr": "sum(rate(http_server_requests_seconds_count{job=\"user-api\",status=~\"5..\",uri!~\".*actuator.*\"}[5m]))",
+        "legendFormat": "5xx/s", "refId": "A"
+      }]
+    },
+
+    {
+      "id": 3, "type": "stat",
+      "title": "P99 Latency",
+      "description": "99th percentile — requires restart after enabling histogram buckets",
+      "gridPos": { "x": 8, "y": 0, "w": 4, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "background", "graphMode": "area", "textMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "color": { "mode": "thresholds" },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 0.5 }, { "color": "red", "value": 1 }] }
+        }, "overrides": []
+      },
+      "targets": [{
+        "expr": "histogram_quantile(0.99, sum(rate(http_server_requests_seconds_bucket{job=\"user-api\",uri!~\".*actuator.*\"}[5m])) by (le))",
+        "legendFormat": "P99", "refId": "A"
+      }]
+    },
+
+    {
+      "id": 4, "type": "stat",
+      "title": "Circuit Breaker",
+      "description": "projects-api circuit breaker state",
+      "gridPos": { "x": 12, "y": 0, "w": 4, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "background", "graphMode": "none", "textMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": { "mode": "thresholds" },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 1 }] },
+          "mappings": [{ "type": "value", "options": { "0": { "text": "CLOSED", "color": "green" }, "1": { "text": "OPEN", "color": "red" } } }]
+        }, "overrides": []
+      },
+      "targets": [{
+        "expr": "resilience4j_circuitbreaker_state{job=\"user-api\",name=\"projectsApi\",state=\"open\"}",
+        "legendFormat": "CB", "refId": "A"
+      }]
+    },
+
+    {
+      "id": 5, "type": "stat",
+      "title": "Project Links Created",
+      "description": "Total user↔project links created (cumulative)",
+      "gridPos": { "x": 16, "y": 0, "w": 4, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "background", "graphMode": "area", "textMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": { "mode": "thresholds" },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "blue", "value": null }] }
+        }, "overrides": []
+      },
+      "targets": [{
+        "expr": "user_project_link_total{job=\"user-api\"}",
+        "legendFormat": "links", "refId": "A"
+      }]
+    },
+
+    {
+      "id": 6, "type": "stat",
+      "title": "Log Errors",
+      "description": "ERROR log events/min",
+      "gridPos": { "x": 20, "y": 0, "w": 4, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "background", "graphMode": "area", "textMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": { "mode": "thresholds" },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 0.1 }] }
+        }, "overrides": []
+      },
+      "targets": [{
+        "expr": "sum(rate(logback_events_total{job=\"user-api\",level=\"error\"}[5m])) * 60",
+        "legendFormat": "errors/min", "refId": "A"
+      }]
+    },
+
+    {
+      "id": 7, "type": "timeseries",
+      "title": "HTTP Requests by URI",
+      "description": "Req/s per endpoint — actuator excluded",
+      "gridPos": { "x": 0, "y": 4, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "fieldConfig": {
+        "defaults": { "unit": "reqps", "custom": { "lineWidth": 2, "fillOpacity": 10 } },
+        "overrides": []
+      },
+      "targets": [{
+        "expr": "sum by (method, uri, status) (rate(http_server_requests_seconds_count{job=\"user-api\",uri!~\".*actuator.*\",uri!=\"UNKNOWN\"}[5m]))",
+        "legendFormat": "{{method}} {{uri}} {{status}}", "refId": "A"
+      }]
+    },
+
+    {
+      "id": 8, "type": "timeseries",
+      "title": "HTTP Latency (P50 / P95 / P99)",
+      "description": "Response time percentiles — actuator excluded",
+      "gridPos": { "x": 12, "y": 4, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "fieldConfig": {
+        "defaults": { "unit": "s", "custom": { "lineWidth": 2, "fillOpacity": 5 } },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum(rate(http_server_requests_seconds_bucket{job=\"user-api\",uri!~\".*actuator.*\"}[5m])) by (le))",
+          "legendFormat": "P50", "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(http_server_requests_seconds_bucket{job=\"user-api\",uri!~\".*actuator.*\"}[5m])) by (le))",
+          "legendFormat": "P95", "refId": "B"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum(rate(http_server_requests_seconds_bucket{job=\"user-api\",uri!~\".*actuator.*\"}[5m])) by (le))",
+          "legendFormat": "P99", "refId": "C"
+        }
+      ]
+    },
+
+    {
+      "id": 9, "type": "timeseries",
+      "title": "JVM Heap (ZGC)",
+      "description": "ZHeap used vs committed vs max",
+      "gridPos": { "x": 0, "y": 12, "w": 8, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "none" }
+      },
+      "fieldConfig": {
+        "defaults": { "unit": "bytes", "custom": { "lineWidth": 2, "fillOpacity": 15 } },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "max" },
+            "properties": [
+              { "id": "custom.lineStyle", "value": { "dash": [8, 5], "fill": "dash" } },
+              { "id": "color", "value": { "fixedColor": "grey", "mode": "fixed" } }
+            ]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "expr": "jvm_memory_used_bytes{job=\"user-api\",area=\"heap\",id=\"ZHeap\"}",
+          "legendFormat": "used", "refId": "A"
+        },
+        {
+          "expr": "jvm_memory_committed_bytes{job=\"user-api\",area=\"heap\",id=\"ZHeap\"}",
+          "legendFormat": "committed", "refId": "B"
+        }
+      ]
+    },
+
+    {
+      "id": 10, "type": "timeseries",
+      "title": "CPU Usage",
+      "description": "Process and system CPU",
+      "gridPos": { "x": 8, "y": 12, "w": 8, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "none" }
+      },
+      "fieldConfig": {
+        "defaults": { "unit": "percentunit", "min": 0, "max": 1, "custom": { "lineWidth": 2, "fillOpacity": 10 } },
+        "overrides": []
+      },
+      "targets": [
+        { "expr": "process_cpu_usage{job=\"user-api\"}", "legendFormat": "process", "refId": "A" },
+        { "expr": "system_cpu_usage{job=\"user-api\"}", "legendFormat": "system", "refId": "B" }
+      ]
+    },
+
+    {
+      "id": 11, "type": "timeseries",
+      "title": "HikariCP Connections",
+      "description": "Database connection pool — active / idle / max",
+      "gridPos": { "x": 16, "y": 12, "w": 8, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "none" }
+      },
+      "fieldConfig": {
+        "defaults": { "unit": "short", "custom": { "lineWidth": 2, "fillOpacity": 10 } },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "max" },
+            "properties": [
+              { "id": "custom.lineStyle", "value": { "dash": [8, 5], "fill": "dash" } },
+              { "id": "color", "value": { "fixedColor": "grey", "mode": "fixed" } }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "active" },
+            "properties": [{ "id": "color", "value": { "fixedColor": "blue", "mode": "fixed" } }]
+          }
+        ]
+      },
+      "targets": [
+        { "expr": "hikaricp_connections_active{job=\"user-api\"}", "legendFormat": "active", "refId": "A" },
+        { "expr": "hikaricp_connections_idle{job=\"user-api\"}", "legendFormat": "idle", "refId": "B" }
+      ]
+    },
+
+    {
+      "id": 12, "type": "timeseries",
+      "title": "Resilience4j — Circuit Breaker",
+      "description": "projectsApi CB: successful vs failed calls + failure rate",
+      "gridPos": { "x": 0, "y": 20, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "none" }
+      },
+      "fieldConfig": {
+        "defaults": { "unit": "short", "custom": { "lineWidth": 2, "fillOpacity": 8 } },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "failure rate %" },
+            "properties": [
+              { "id": "unit", "value": "percent" },
+              { "id": "color", "value": { "fixedColor": "red", "mode": "fixed" } },
+              { "id": "custom.axisPlacement", "value": "right" }
+            ]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "expr": "rate(resilience4j_circuitbreaker_calls_seconds_count{job=\"user-api\",name=\"projectsApi\",kind=\"successful\"}[5m])",
+          "legendFormat": "successful/s", "refId": "A"
+        },
+        {
+          "expr": "rate(resilience4j_circuitbreaker_calls_seconds_count{job=\"user-api\",name=\"projectsApi\",kind=\"failed\"}[5m])",
+          "legendFormat": "failed/s", "refId": "B"
+        },
+        {
+          "expr": "resilience4j_circuitbreaker_failure_rate{job=\"user-api\",name=\"projectsApi\"}",
+          "legendFormat": "failure rate %", "refId": "C"
+        }
+      ]
+    },
+
+    {
+      "id": 13, "type": "timeseries",
+      "title": "Log Events by Level",
+      "description": "Logback events/min per level — spikes in ERROR indicate problems",
+      "gridPos": { "x": 12, "y": 20, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "fieldConfig": {
+        "defaults": { "unit": "short", "custom": { "lineWidth": 2, "fillOpacity": 10 } },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "error" }, "properties": [{ "id": "color", "value": { "fixedColor": "red", "mode": "fixed" } }] },
+          { "matcher": { "id": "byName", "options": "warn" }, "properties": [{ "id": "color", "value": { "fixedColor": "orange", "mode": "fixed" } }] },
+          { "matcher": { "id": "byName", "options": "info" }, "properties": [{ "id": "color", "value": { "fixedColor": "green", "mode": "fixed" } }] },
+          { "matcher": { "id": "byName", "options": "debug" }, "properties": [{ "id": "color", "value": { "fixedColor": "blue", "mode": "fixed" } }] }
+        ]
+      },
+      "targets": [{
+        "expr": "sum by (level) (rate(logback_events_total{job=\"user-api\"}[5m])) * 60",
+        "legendFormat": "{{level}}", "refId": "A"
+      }]
+    },
+
+    {
+      "id": 14, "type": "logs",
+      "title": "Application Logs",
+      "description": "Structured logs from user-api — business events and errors",
+      "gridPos": { "x": 0, "y": 28, "w": 24, "h": 10 },
+      "datasource": { "type": "loki", "uid": "loki" },
+      "options": {
+        "dedupStrategy": "none",
+        "enableLogDetails": true,
+        "prettifyLogMessage": false,
+        "showCommonLabels": false,
+        "showLabels": false,
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": false
+      },
+      "targets": [{
+        "expr": "{job=\"user-api\"} | json | line_format \"{{.message}}\"",
+        "legendFormat": "", "refId": "A"
+      }]
+    }
+
+  ]
+}

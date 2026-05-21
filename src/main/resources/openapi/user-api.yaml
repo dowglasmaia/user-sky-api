@@ -335,6 +335,11 @@ components:
         token:
           type: string
 
+    UserRole:
+      type: string
+      enum: [ROLE_USER, ROLE_ADMIN]
+      default: ROLE_USER
+
     CreateUserRequest:
       type: object
       required: [name, email, password]
@@ -350,6 +355,8 @@ components:
           type: string
           minLength: 8
           maxLength: 100
+        role:
+          $ref: '#/components/schemas/UserRole'
 
     UpdateUserRequest:
       type: object
