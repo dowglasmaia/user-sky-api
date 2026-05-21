@@ -71,44 +71,23 @@
                   class="com.github.loki4j.logback.Loki4jAppender">
 
             <http>
-                <url>
-                    http://loki:3100/loki/api/v1/push
-                </url>
-
+                <url>http://loki:3100/loki/api/v1/push</url>
                 <connectionTimeoutMs>5000</connectionTimeoutMs>
-                <requestTimeoutMs>5000</requestTimeoutMs>
+                <requestTimeoutMs>10000</requestTimeoutMs>
             </http>
 
             <format>
-
                 <label>
                     <pattern>
-                        job=user-api,
-                        application=user-api,
-                        env=docker,
-                        host=${HOSTNAME:-unknown},
-                        level=%level
+                        job=user-api,application=user-api,env=docker,host=${HOSTNAME:-unknown},level=%level
                     </pattern>
-
                     <nopex>true</nopex>
                 </label>
 
-                <message>
-                    <pattern>
-                        ts=%d{yyyy-MM-dd'T'HH:mm:ss.SSS}
-                        lvl=%-5level
-                        app=user-api
-                        host=${HOSTNAME:-unknown}
-                        trc=%X{traceId:-N/A}
-                        spn=%X{spanId:-N/A}
-                        cor=%X{correlationId:-N/A}
-                        lgr=%logger{36}
-                        msg="%replace(%msg){'["\n\r\t]',' '}"%n%ex{10}
-                    </pattern>
-                </message>
+                <!-- JSON payload — parseable via | json no Grafana/Loki -->
+                <message class="com.github.loki4j.logback.JsonLayout"/>
 
                 <sortByTime>true</sortByTime>
-
             </format>
         </appender>
 

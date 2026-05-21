@@ -246,10 +246,6 @@
         {
           "expr": "jvm_memory_committed_bytes{job=\"user-api\",area=\"heap\",id=\"ZHeap\"}",
           "legendFormat": "committed", "refId": "B"
-        },
-        {
-          "expr": "jvm_memory_max_bytes{job=\"user-api\",area=\"heap\",id=\"ZHeap\"}",
-          "legendFormat": "max", "refId": "C"
         }
       ]
     },
@@ -302,8 +298,7 @@
       },
       "targets": [
         { "expr": "hikaricp_connections_active{job=\"user-api\"}", "legendFormat": "active", "refId": "A" },
-        { "expr": "hikaricp_connections_idle{job=\"user-api\"}", "legendFormat": "idle", "refId": "B" },
-        { "expr": "hikaricp_connections_max{job=\"user-api\"}", "legendFormat": "max", "refId": "C" }
+        { "expr": "hikaricp_connections_idle{job=\"user-api\"}", "legendFormat": "idle", "refId": "B" }
       ]
     },
 

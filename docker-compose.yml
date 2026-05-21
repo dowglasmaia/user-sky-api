@@ -5,7 +5,7 @@ version: "3.9"
 #
 #  Services
 #    core:          postgres · projects-api · user-api
-#    observability: prometheus · jaeger · loki · promtail · grafana
+#    observability: prometheus · jaeger · loki · grafana
 #
 #  Usage
 #    docker compose up -d --build
@@ -153,20 +153,6 @@ services:
       interval: 15s
       timeout: 5s
       retries: 5
-    restart: unless-stopped
-
-  # ── Promtail (log shipping Docker → Loki) ────────────────
-  promtail:
-    image: grafana/promtail:2.9.4
-    container_name: promtail
-    networks: [ app-net ]
-    volumes:
-      - ./observability/promtail/promtail-config.yml:/etc/promtail/promtail-config.yml:ro
-      - /var/run/docker.sock:/var/run/docker.sock:ro   # Docker log discovery
-    command: -config.file=/etc/promtail/promtail-config.yml
-    depends_on:
-      loki:
-        condition: service_healthy
     restart: unless-stopped
 
   # ── Grafana (dashboards) ──────────────────────────────────
