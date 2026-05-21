@@ -66,6 +66,110 @@ This project used [**Claude Code**](https://claude.ai/code) — Anthropic's AI C
 
 ---
 
+## Prerequisites — Running with Docker
+
+### Requirements
+
+| Tool | Minimum version |
+|---|---|
+| Docker | 24+ |
+| Docker Compose | v2 (plugin) |
+
+### Starting the full stack
+
+```bash
+# Stop any previous containers and remove volumes
+docker compose down -v
+
+# Build and start everything (API + PostgreSQL + full observability stack)
+docker compose build --no-cache
+docker compose up -d
+```
+
+Wait ~20 seconds for all services to initialize, then confirm they are healthy:
+
+```bash
+docker compose ps
+curl http://localhost:8080/api/v1/actuator/health
+```
+
+Expected response:
+```json
+{ "status": "UP" }
+```
+
+---
+
+### Grafana — Metrics, Logs & Dashboards
+
+1. Open **http://localhost:3000** in your browser.
+2. Log in with `admin` / `admin`.
+3. Navigate to **Dashboards → User API — Observability**.
+
+The pre-provisioned dashboard loads automatically on first start and shows:
+
+| Panel | What you see |
+|---|---|
+| Request Rate | Requests/s broken down by status code |
+| Error Rate (5xx) | Server errors per second |
+| P99 Latency | 99th-percentile response time |
+| HTTP Latency P50/P95/P99 | Latency percentile curves over time |
+| JVM Heap Memory | Used vs max heap |
+| CPU Usage | Process + system CPU |
+| HikariCP Connections | Active / idle / max pool |
+| Application Logs | Live log stream from Loki |
+
+To browse raw logs, go to **Explore → Loki** and run:
+
+```logql
+# All application logs
+{service="user-api"}
+
+# Errors only
+{service="user-api"} | json | level="ERROR"
+
+# Logs for a specific trace
+{service="user-api"} | json | traceId="<traceId>"
+```
+
+---
+
+### Jaeger — Distributed Traces
+
+1. Open **http://localhost:16686** in your browser.
+2. In the **Service** dropdown select `user-api`.
+3. Click **Find Traces** to list recent requests.
+4. Click any trace to expand the full span timeline.
+
+To correlate a trace with a specific request, pass a custom correlation ID:
+
+```bash
+curl -H "X-Correlation-Id: my-debug-001" \
+     -H "Authorization: Bearer <JWT>" \
+     http://localhost:8080/api/v1/users
+```
+
+Then search Jaeger for the `traceId` returned in the response header, or search Loki with:
+
+```logql
+{service="user-api"} | json | correlationId="my-debug-001"
+```
+
+---
+
+### Service URLs at a glance
+
+| Service | URL | Credentials |
+|---|---|---|
+| user-api | http://localhost:8080/api/v1 | See quick-start table |
+| projects-api | http://localhost:8081/api/v1 | — |
+| Grafana | http://localhost:3000 | admin / admin |
+| Prometheus | http://localhost:9090 | — |
+| Jaeger | http://localhost:16686 | — |
+| Actuator | http://localhost:8080/api/v1/actuator | — |
+
+---
+
 ## Architecture Overview
 
 ### Architectural Style
