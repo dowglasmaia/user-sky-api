@@ -1,0 +1,72 @@
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+  log_level: warn
+
+positions:
+  filename: /tmp/positions.yaml
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+
+scrape_configs:
+
+  # ── Docker container log discovery via Docker socket ──────────────────────
+  # Promtail reads each container's stdout/stderr from the Docker daemon.
+  # Acts as a BACKUP to the loki4j direct-push appender inside user-api.
+  - job_name: docker
+
+    docker_sd_configs:
+      - host: unix:///var/run/docker.sock
+        refresh_interval: 5s
+
+    relabel_configs:
+
+      # Container name (strip the leading "/")
+      - source_labels: [ __meta_docker_container_name ]
+        regex: '/(.*)'
+        target_label: container
+
+      # Compose service name  →  "service" label
+      - source_labels: [ __meta_docker_container_label_com_docker_compose_service ]
+        target_label: service
+
+      # Compose service name  →  "job" label
+      # This MUST match the job_name in prometheus.yml so that dashboard
+      # template variables (e.g. 17175's $job) work across metrics AND logs.
+      - source_labels: [ __meta_docker_container_label_com_docker_compose_service ]
+        target_label: job
+
+      # stdout / stderr
+      - source_labels: [ __meta_docker_container_log_stream ]
+        target_label: stream
+
+      # Drop containers that have no Compose service label (pure infra)
+      - source_labels: [ service ]
+        regex: '.+'
+        action: keep
+
+    # ── Pipeline stages ──────────────────────────────────────────────────────
+    # NOTE: structured_metadata is a Loki 3.x feature — do NOT use it here
+    # because this stack uses Loki 2.9.x.
+    #
+    # The json stage is non-fatal: if a log line is not valid JSON (e.g.
+    # containers running without SPRING_PROFILES_ACTIVE=docker) it simply
+    # skips extraction and the raw line is forwarded unchanged.
+    pipeline_stages:
+
+      # Try to parse JSON emitted by LogstashEncoder (docker Spring profile)
+      - json:
+          expressions:
+            log_level:     level
+            traceId:       traceId
+            spanId:        spanId
+            correlationId: correlationId
+
+      # Promote extracted fields as Loki stream labels
+      # (only populated when JSON parsing succeeded)
+      - labels:
+          level:         log_level
+          traceId:
+          spanId:
+          correlationId:
